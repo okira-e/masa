@@ -31,10 +31,10 @@ main :: proc() {
 	fmt.println()
 	fmt.println()
 
-	lxr := lexer.Lexer{}
-	lexer.init(&lxr)
+	l := lexer.Lexer{}
+	lexer.init(&l)
 
-	tokens, err := lexer.scan(&lxr, transmute(string)source)
+	tokens, err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
 	if err != nil {
 		fmt.fprintf(os.stderr, "Error while scanning: %s\n", err)

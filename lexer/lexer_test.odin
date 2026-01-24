@@ -66,9 +66,9 @@ _message := "Hello World!"
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -121,9 +121,9 @@ test_lexer_single_tokens :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -188,9 +188,9 @@ test_lexer_multiple_tokens :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -259,9 +259,9 @@ test_lexer_with_whitespace :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -327,9 +327,9 @@ test_lexer_comments :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -372,9 +372,9 @@ test_lexer_comments :: proc(t: ^testing.T) {
 test_lexer_line_and_column_tracking :: proc(t: ^testing.T) {
 	input := "(\n)"
 
-	lxr := Lexer{}
-	init(&lxr)
-	tokens, err := scan(&lxr, input)
+	lexer := Lexer{}
+	init(&lexer)
+	tokens, err := scan(&lexer, input)
 	defer delete(tokens)
 	if err != nil {
 		print_tokens(input, tokens)
@@ -408,9 +408,9 @@ test_lexer_line_and_column_tracking :: proc(t: ^testing.T) {
 test_lexer_lexeme_ranges :: proc(t: ^testing.T) {
 	input := "(){}"
 
-	lxr := Lexer{}
-	init(&lxr)
-	tokens, err := scan(&lxr, input)
+	lexer := Lexer{}
+	init(&lexer)
+	tokens, err := scan(&lexer, input)
 	defer delete(tokens)
 	if err != nil {
 		print_tokens(input, tokens)
@@ -445,9 +445,9 @@ test_lexer_lexeme_ranges :: proc(t: ^testing.T) {
 test_lexer_empty_input :: proc(t: ^testing.T) {
 	input := ""
 
-	lxr := Lexer{}
-	init(&lxr)
-	tokens, err := scan(&lxr, input)
+	lexer := Lexer{}
+	init(&lexer)
+	tokens, err := scan(&lexer, input)
 	defer delete(tokens)
 	if err != nil {
 		print_tokens(input, tokens)
@@ -495,9 +495,9 @@ test_lexer_declaration_and_assignment :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -549,9 +549,9 @@ test_lexer_bang_equal :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -692,9 +692,9 @@ test_lexer_strings :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if tt.expect_error {
 			if err == nil {
@@ -754,9 +754,9 @@ test_lexer_string_lexeme_content :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -797,9 +797,9 @@ test_lexer_string_lexeme_content :: proc(t: ^testing.T) {
 test_lexer_string_literal_kind :: proc(t: ^testing.T) {
 	input := `"test"`
 
-	lxr := Lexer{}
-	init(&lxr)
-	tokens, err := scan(&lxr, input)
+	lexer := Lexer{}
+	init(&lexer)
+	tokens, err := scan(&lexer, input)
 	defer delete(tokens)
 	if err != nil {
 		print_tokens(input, tokens)
@@ -873,9 +873,9 @@ test_lexer_numbers_and_dots :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if tt.expect_error {
 			if err == nil {
@@ -987,9 +987,9 @@ test_lexer_identifiers :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -1100,9 +1100,9 @@ test_lexer_identifier_lexemes :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if tt.expect_error {
 			if err == nil {
@@ -1166,9 +1166,9 @@ test_lexer_keywords :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
@@ -1227,9 +1227,9 @@ test_lexer_keywords :: proc(t: ^testing.T) {
 test_lexer_identifier_no_literal_kind :: proc(t: ^testing.T) {
 	input := "myVariable"
 
-	lxr := Lexer{}
-	init(&lxr)
-	tokens, err := scan(&lxr, input)
+	lexer := Lexer{}
+	init(&lexer)
+	tokens, err := scan(&lexer, input)
 	defer delete(tokens)
 	if err != nil {
 		print_tokens(input, tokens)
@@ -1260,9 +1260,9 @@ test_lexer_identifier_no_literal_kind :: proc(t: ^testing.T) {
 test_lexer_keyword_no_literal_kind :: proc(t: ^testing.T) {
 	input := "fn"
 
-	lxr := Lexer{}
-	init(&lxr)
-	tokens, err := scan(&lxr, input)
+	lexer := Lexer{}
+	init(&lexer)
+	tokens, err := scan(&lexer, input)
 	defer delete(tokens)
 	if err != nil {
 		print_tokens(input, tokens)
@@ -1308,9 +1308,9 @@ test_lexer_literal_kind :: proc(t: ^testing.T) {
 	}
 
 	for tt in tests {
-		lxr := Lexer{}
-		init(&lxr)
-		tokens, err := scan(&lxr, tt.input)
+		lexer := Lexer{}
+		init(&lexer)
+		tokens, err := scan(&lexer, tt.input)
 		defer delete(tokens)
 		if err != nil {
 			print_tokens(tt.input, tokens)
