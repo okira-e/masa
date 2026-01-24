@@ -1,0 +1,33 @@
+Vector :: struct {
+	x: number,
+	y: number,
+}
+
+new_vector :: fn(x: number, y: number) -> Vector {
+	return Vector {
+		x: x,
+		y: y,
+	}
+}
+
+dimensions :: fn(foo: Vector) -> number, number {
+	return foo.x, foo.y
+}
+
+v := Vector{x: 3, y: 5}
+v = new_vector(3, 5)
+
+x, y := v.dimensions()
+x, y := dimensions(v)
+
+foo :: fn() -> number {
+	internal := 5
+	
+	return internal
+}
+
+main :: fn() { // `-> void` is optional
+	message: str = f"Hello {foo()} times!"
+	
+	println(message)
+}

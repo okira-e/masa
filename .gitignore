@@ -1,0 +1,17 @@
+bin/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# IDEs and editors
+.idea/
+.vscode/
+.zed
+*.sublime-workspace
+
+**/.DS_Store
+
+todo.txt
