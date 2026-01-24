@@ -6,6 +6,7 @@ build:
 
 test:
 	odin test lexer
+	odin test ast
 	
 release: # Usage: make release TARGET=linux_amd64, windows_amd64, darwin_arm64
 	mkdir -p bin/release

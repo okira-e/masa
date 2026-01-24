@@ -1,7 +1,7 @@
 package lexer
 
-import "core:testing"
 import "../syntax"
+import "core:testing"
 
 @(test)
 test_lexer_smoke :: proc(t: ^testing.T) {
@@ -180,7 +180,11 @@ test_lexer_multiple_tokens :: proc(t: ^testing.T) {
 			input = "({)}",
 			expected = []syntax.Token_Kind{.Left_Paren, .Left_Brace, .Right_Paren, .Right_Brace},
 		},
-		{name = "slash and brace", input = "/}", expected = []syntax.Token_Kind{.Slash, .Right_Brace}},
+		{
+			name = "slash and brace",
+			input = "/}",
+			expected = []syntax.Token_Kind{.Slash, .Right_Brace},
+		},
 		{
 			name = "comment and newline",
 			input = "// comment\n",
@@ -308,7 +312,11 @@ test_lexer_comments :: proc(t: ^testing.T) {
 		input:    string,
 		expected: []syntax.Token_Kind,
 	} {
-		{name = "simple comment", input = "// Hi there hello", expected = []syntax.Token_Kind{.Comment}},
+		{
+			name = "simple comment",
+			input = "// Hi there hello",
+			expected = []syntax.Token_Kind{.Comment},
+		},
 		{
 			name = "comment with newline",
 			input = "// comment\n",
@@ -471,8 +479,16 @@ test_lexer_declaration_and_assignment :: proc(t: ^testing.T) {
 		expected: []syntax.Token_Kind,
 	} {
 		{name = "assignment equal", input = "=", expected = []syntax.Token_Kind{.Equal}},
-		{name = "equal equal comparison", input = "==", expected = []syntax.Token_Kind{.Equal_Equal}},
-		{name = "declarative assignment", input = ":=", expected = []syntax.Token_Kind{.Colon_Equal}},
+		{
+			name = "equal equal comparison",
+			input = "==",
+			expected = []syntax.Token_Kind{.Equal_Equal},
+		},
+		{
+			name = "declarative assignment",
+			input = ":=",
+			expected = []syntax.Token_Kind{.Colon_Equal},
+		},
 		{
 			name = "comptime declarative assignment",
 			input = "::",
@@ -836,7 +852,12 @@ test_lexer_numbers_and_dots :: proc(t: ^testing.T) {
 		expected:     []syntax.Token_Kind,
 		expect_error: bool,
 	} {
-		{name = "empty dot", input = ".", expected = []syntax.Token_Kind{.Dot}, expect_error = false},
+		{
+			name = "empty dot",
+			input = ".",
+			expected = []syntax.Token_Kind{.Dot},
+			expect_error = false,
+		},
 		{
 			name = "leading dot to an identifier",
 			input = ".x",
@@ -958,8 +979,16 @@ test_lexer_identifiers :: proc(t: ^testing.T) {
 			input = "veryLongIdentifierNameThatGoesOnAndOn",
 			expected = []syntax.Token_Kind{.Ident},
 		},
-		{name = "uppercase identifier", input = "CONSTANT", expected = []syntax.Token_Kind{.Ident}},
-		{name = "mixed case identifier", input = "MixedCase", expected = []syntax.Token_Kind{.Ident}},
+		{
+			name = "uppercase identifier",
+			input = "CONSTANT",
+			expected = []syntax.Token_Kind{.Ident},
+		},
+		{
+			name = "mixed case identifier",
+			input = "MixedCase",
+			expected = []syntax.Token_Kind{.Ident},
+		},
 		{
 			name = "identifier followed by token",
 			input = "name(",
@@ -1151,7 +1180,12 @@ test_lexer_keywords :: proc(t: ^testing.T) {
 		expected:     []syntax.Token_Kind,
 		keyword_kind: syntax.Keyword,
 	} {
-		{name = "fn keyword", input = "fn", expected = []syntax.Token_Kind{.Keyword}, keyword_kind = .Fn},
+		{
+			name = "fn keyword",
+			input = "fn",
+			expected = []syntax.Token_Kind{.Keyword},
+			keyword_kind = .Fn,
+		},
 		{
 			name = "fn keyword followed by identifier",
 			input = "fn name",

@@ -1,10 +1,8 @@
 package main
 
-import "ast"
 import "core:fmt"
 import "core:os"
 import "lexer"
-import "syntax"
 
 main :: proc() {
 	args := os.args
@@ -43,9 +41,4 @@ main :: proc() {
 		os.exit(1)
 	}
 	_ = tokens
-
-	expr := syntax.Expr {
-		expr = syntax.Literal_Expr{kind = .Number},
-	}
-	ast.print_expr(&expr)
 }

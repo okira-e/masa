@@ -12,7 +12,7 @@ Expr :: struct {
 }
 
 Literal_Expr :: struct {
-	kind: Literal_Kind,
+	token: Token, // Since lexemes are not actaully stored in token, it's cheap to copy
 }
 
 Unary_Expr :: struct {
