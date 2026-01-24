@@ -1,4 +1,4 @@
-package lexer
+package syntax
 
 Keyword :: enum u8 {
 	Fn,

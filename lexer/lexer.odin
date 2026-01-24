@@ -2,6 +2,7 @@ package lexer
 
 import "core:fmt"
 import "core:unicode"
+import "../syntax"
 
 Lexer :: struct {
 	current:           int,
@@ -17,8 +18,8 @@ init :: proc(lexer: ^Lexer) {
 	lexer.last_lexeme_start = 0
 }
 
-scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]Token, Maybe(Lexer_Error)) {
-	tokens := [dynamic]Token{}
+scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_Error)) {
+	tokens := [dynamic]syntax.Token{}
 	lexer.line += 1
 
 	err: Maybe(Lexer_Error) = nil
@@ -293,10 +294,10 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]Token, Maybe(Lexer_Erro
 
 					// Decide if it's a reserved keyword or an identifier name
 
-					token_kind: Token_Kind = .Ident
+					token_kind: syntax.Token_Kind = .Ident
 
 					lexeme := string(source[lexer.last_lexeme_start:lexer.current + 1])
-					keyword := keyword_from_string(lexeme)
+					keyword := syntax.keyword_from_string(lexeme)
 					if keyword != nil {
 						token_kind = .Keyword
 					}
@@ -318,11 +319,11 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]Token, Maybe(Lexer_Erro
 make_token :: proc(
 	lexer: ^Lexer,
 	current: int,
-	kind: Token_Kind,
-	literal_kind: Maybe(Literal_Kind),
-	keyword: Maybe(Keyword),
-) -> Token {
-	return Token {
+	kind: syntax.Token_Kind,
+	literal_kind: Maybe(syntax.Literal_Kind),
+	keyword: Maybe(syntax.Keyword),
+) -> syntax.Token {
+	return syntax.Token {
 		kind = kind,
 		lexeme_start = lexer.last_lexeme_start,
 		lexeme_end = current + 1,

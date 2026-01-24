@@ -1,8 +1,9 @@
 package lexer
 
+import "../syntax"
 import "core:fmt"
 
-print_tokens :: proc(source: string, tokens: [dynamic]Token) {
+print_tokens :: proc(source: string, tokens: [dynamic]syntax.Token) {
 	fmt.printf("Tokens: \n")
 	for tok, i in tokens {
 		out := "---"

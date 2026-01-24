@@ -1,13 +1,14 @@
 package lexer
 
 import "core:testing"
+import "../syntax"
 
 @(test)
 test_lexer_smoke :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
 		{
 			name     = "Smoke test",
@@ -25,7 +26,7 @@ test_lexer_smoke :: proc(t: ^testing.T) {
 camel_case // This an identifier
 _message := "Hello World!"
 {`,
-			expected = []Token_Kind {
+			expected = []syntax.Token_Kind {
 				.Left_Paren,
 				.Right_Brace,
 				.Right_Paren,
@@ -112,12 +113,12 @@ test_lexer_single_tokens :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
-		{name = "left parenthesis", input = "(", expected = []Token_Kind{.Left_Paren}},
-		{name = "slash", input = "/", expected = []Token_Kind{.Slash}},
-		{name = "newline", input = "\n", expected = []Token_Kind{.New_Line}},
-		{name = "comment", input = "// hello", expected = []Token_Kind{.Comment}},
+		{name = "left parenthesis", input = "(", expected = []syntax.Token_Kind{.Left_Paren}},
+		{name = "slash", input = "/", expected = []syntax.Token_Kind{.Slash}},
+		{name = "newline", input = "\n", expected = []syntax.Token_Kind{.New_Line}},
+		{name = "comment", input = "// hello", expected = []syntax.Token_Kind{.Comment}},
 	}
 
 	for tt in tests {
@@ -167,23 +168,23 @@ test_lexer_multiple_tokens :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
 		{
 			name = "parentheses pair",
 			input = "()",
-			expected = []Token_Kind{.Left_Paren, .Right_Paren},
+			expected = []syntax.Token_Kind{.Left_Paren, .Right_Paren},
 		},
 		{
 			name = "mixed brackets",
 			input = "({)}",
-			expected = []Token_Kind{.Left_Paren, .Left_Brace, .Right_Paren, .Right_Brace},
+			expected = []syntax.Token_Kind{.Left_Paren, .Left_Brace, .Right_Paren, .Right_Brace},
 		},
-		{name = "slash and brace", input = "/}", expected = []Token_Kind{.Slash, .Right_Brace}},
+		{name = "slash and brace", input = "/}", expected = []syntax.Token_Kind{.Slash, .Right_Brace}},
 		{
 			name = "comment and newline",
 			input = "// comment\n",
-			expected = []Token_Kind{.Comment, .New_Line},
+			expected = []syntax.Token_Kind{.Comment, .New_Line},
 		},
 	}
 
@@ -234,27 +235,27 @@ test_lexer_with_whitespace :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
 		{
 			name = "spaces between tokens",
 			input = "( )",
-			expected = []Token_Kind{.Left_Paren, .Right_Paren},
+			expected = []syntax.Token_Kind{.Left_Paren, .Right_Paren},
 		},
 		{
 			name = "tabs between tokens",
 			input = "{\t}",
-			expected = []Token_Kind{.Left_Brace, .Right_Brace},
+			expected = []syntax.Token_Kind{.Left_Brace, .Right_Brace},
 		},
 		{
 			name = "carriage return ignored",
 			input = "(\r)",
-			expected = []Token_Kind{.Left_Paren, .Right_Paren},
+			expected = []syntax.Token_Kind{.Left_Paren, .Right_Paren},
 		},
 		{
 			name = "multiple spaces",
 			input = "(   )",
-			expected = []Token_Kind{.Left_Paren, .Right_Paren},
+			expected = []syntax.Token_Kind{.Left_Paren, .Right_Paren},
 		},
 	}
 
@@ -305,25 +306,25 @@ test_lexer_comments :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
-		{name = "simple comment", input = "// Hi there hello", expected = []Token_Kind{.Comment}},
+		{name = "simple comment", input = "// Hi there hello", expected = []syntax.Token_Kind{.Comment}},
 		{
 			name = "comment with newline",
 			input = "// comment\n",
-			expected = []Token_Kind{.Comment, .New_Line},
+			expected = []syntax.Token_Kind{.Comment, .New_Line},
 		},
 		{
 			name = "multiple comments",
 			input = "// first\n// second",
-			expected = []Token_Kind{.Comment, .New_Line, .Comment},
+			expected = []syntax.Token_Kind{.Comment, .New_Line, .Comment},
 		},
 		{
 			name = "comment after token",
 			input = "{ // comment",
-			expected = []Token_Kind{.Left_Brace, .Comment},
+			expected = []syntax.Token_Kind{.Left_Brace, .Comment},
 		},
-		{name = "empty comment", input = "//", expected = []Token_Kind{.Comment}},
+		{name = "empty comment", input = "//", expected = []syntax.Token_Kind{.Comment}},
 	}
 
 	for tt in tests {
@@ -467,30 +468,30 @@ test_lexer_declaration_and_assignment :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
-		{name = "assignment equal", input = "=", expected = []Token_Kind{.Equal}},
-		{name = "equal equal comparison", input = "==", expected = []Token_Kind{.Equal_Equal}},
-		{name = "declarative assignment", input = ":=", expected = []Token_Kind{.Colon_Equal}},
+		{name = "assignment equal", input = "=", expected = []syntax.Token_Kind{.Equal}},
+		{name = "equal equal comparison", input = "==", expected = []syntax.Token_Kind{.Equal_Equal}},
+		{name = "declarative assignment", input = ":=", expected = []syntax.Token_Kind{.Colon_Equal}},
 		{
 			name = "comptime declarative assignment",
 			input = "::",
-			expected = []Token_Kind{.Colon_Colon},
+			expected = []syntax.Token_Kind{.Colon_Colon},
 		},
 		{
 			name = "variable runtime declarative assignment",
 			input = "x := 5",
-			expected = []Token_Kind{.Ident, .Colon_Equal, .Literal},
+			expected = []syntax.Token_Kind{.Ident, .Colon_Equal, .Literal},
 		},
 		{
 			name = "variable comptime declarative assignment",
 			input = "main :: fn",
-			expected = []Token_Kind{.Ident, .Colon_Colon, .Keyword},
+			expected = []syntax.Token_Kind{.Ident, .Colon_Colon, .Keyword},
 		},
 		{
 			name = "variable assignment",
 			input = "x = 10",
-			expected = []Token_Kind{.Ident, .Equal, .Literal},
+			expected = []syntax.Token_Kind{.Ident, .Equal, .Literal},
 		},
 	}
 
@@ -541,11 +542,11 @@ test_lexer_bang_equal :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
-		{name = "bang equal", input = "!=", expected = []Token_Kind{.Bang_Equal}},
-		{name = "bang alone", input = "!", expected = []Token_Kind{.Bang}},
-		{name = "bang not followed by equal", input = "!x", expected = []Token_Kind{.Bang}},
+		{name = "bang equal", input = "!=", expected = []syntax.Token_Kind{.Bang_Equal}},
+		{name = "bang alone", input = "!", expected = []syntax.Token_Kind{.Bang}},
+		{name = "bang not followed by equal", input = "!x", expected = []syntax.Token_Kind{.Bang}},
 	}
 
 	for tt in tests {
@@ -596,43 +597,43 @@ test_lexer_strings :: proc(t: ^testing.T) {
 		name:         string,
 		input:        string,
 		expect_error: bool,
-		expected:     []Token_Kind,
+		expected:     []syntax.Token_Kind,
 	} {
 		{
 			name = "empty string",
 			input = `""`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "simple string",
 			input = `"hello"`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "string with spaces",
 			input = `"hello world"`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "string with special characters",
 			input = `"!@#$%^&*()"`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "string with numbers",
 			input = `"123456"`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "string with mixed content",
 			input = `"Hello123!@#"`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "unterminated string at end",
@@ -651,43 +652,43 @@ test_lexer_strings :: proc(t: ^testing.T) {
 			name = "multiple strings",
 			input = `"one" "two"`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal, .Literal},
+			expected = []syntax.Token_Kind{.Literal, .Literal},
 		},
 		{
 			name = "string followed by tokens",
 			input = `"hello"()`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal, .Left_Paren, .Right_Paren},
+			expected = []syntax.Token_Kind{.Literal, .Left_Paren, .Right_Paren},
 		},
 		{
 			name = "tokens followed by string",
 			input = `()"world"`,
 			expect_error = false,
-			expected = []Token_Kind{.Left_Paren, .Right_Paren, .Literal},
+			expected = []syntax.Token_Kind{.Left_Paren, .Right_Paren, .Literal},
 		},
 		{
 			name = "string with tabs",
 			input = "\"hello\tworld\"",
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "string with only spaces",
 			input = `"   "`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 		},
 		{
 			name = "string at start of input",
 			input = `"start" {}`,
 			expect_error = false,
-			expected = []Token_Kind{.Literal, .Left_Brace, .Right_Brace},
+			expected = []syntax.Token_Kind{.Literal, .Left_Brace, .Right_Brace},
 		},
 		{
 			name = "string at end of input",
 			input = `{} "end"`,
 			expect_error = false,
-			expected = []Token_Kind{.Left_Brace, .Right_Brace, .Literal},
+			expected = []syntax.Token_Kind{.Left_Brace, .Right_Brace, .Literal},
 		},
 	}
 
@@ -832,38 +833,38 @@ test_lexer_numbers_and_dots :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:         string,
 		input:        string,
-		expected:     []Token_Kind,
+		expected:     []syntax.Token_Kind,
 		expect_error: bool,
 	} {
-		{name = "empty dot", input = ".", expected = []Token_Kind{.Dot}, expect_error = false},
+		{name = "empty dot", input = ".", expected = []syntax.Token_Kind{.Dot}, expect_error = false},
 		{
 			name = "leading dot to an identifier",
 			input = ".x",
-			expected = []Token_Kind{.Dot, .Ident},
+			expected = []syntax.Token_Kind{.Dot, .Ident},
 			expect_error = false,
 		},
 		{
 			name = "trailing dot",
 			input = "x.",
-			expected = []Token_Kind{.Ident, .Dot},
+			expected = []syntax.Token_Kind{.Ident, .Dot},
 			expect_error = false,
 		},
 		{
 			name = "simple number",
 			input = "42",
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 			expect_error = false,
 		},
 		{
 			name = "simple decimal",
 			input = "42.0",
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 			expect_error = false,
 		},
 		{
 			name = "leading dot to a number",
 			input = ".42",
-			expected = []Token_Kind{.Literal},
+			expected = []syntax.Token_Kind{.Literal},
 			expect_error = false,
 		},
 		{name = "multiple dots", input = "42.0.2", expected = {}, expect_error = true},
@@ -928,61 +929,61 @@ test_lexer_identifiers :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:     string,
 		input:    string,
-		expected: []Token_Kind,
+		expected: []syntax.Token_Kind,
 	} {
-		{name = "simple identifier", input = "foo", expected = []Token_Kind{.Ident}},
-		{name = "single letter identifier", input = "x", expected = []Token_Kind{.Ident}},
+		{name = "simple identifier", input = "foo", expected = []syntax.Token_Kind{.Ident}},
+		{name = "single letter identifier", input = "x", expected = []syntax.Token_Kind{.Ident}},
 		{
 			name = "identifier with underscore",
 			input = "camel_case",
-			expected = []Token_Kind{.Ident},
+			expected = []syntax.Token_Kind{.Ident},
 		},
 		{
 			name = "identifier with multiple underscores",
 			input = "snake_case_name",
-			expected = []Token_Kind{.Ident},
+			expected = []syntax.Token_Kind{.Ident},
 		},
 		{
 			name = "identifier ending with underscore",
 			input = "name_",
-			expected = []Token_Kind{.Ident},
+			expected = []syntax.Token_Kind{.Ident},
 		},
 		{
 			name = "identifier with consecutive underscores",
 			input = "double__underscore",
-			expected = []Token_Kind{.Ident},
+			expected = []syntax.Token_Kind{.Ident},
 		},
 		{
 			name = "long identifier",
 			input = "veryLongIdentifierNameThatGoesOnAndOn",
-			expected = []Token_Kind{.Ident},
+			expected = []syntax.Token_Kind{.Ident},
 		},
-		{name = "uppercase identifier", input = "CONSTANT", expected = []Token_Kind{.Ident}},
-		{name = "mixed case identifier", input = "MixedCase", expected = []Token_Kind{.Ident}},
+		{name = "uppercase identifier", input = "CONSTANT", expected = []syntax.Token_Kind{.Ident}},
+		{name = "mixed case identifier", input = "MixedCase", expected = []syntax.Token_Kind{.Ident}},
 		{
 			name = "identifier followed by token",
 			input = "name(",
-			expected = []Token_Kind{.Ident, .Left_Paren},
+			expected = []syntax.Token_Kind{.Ident, .Left_Paren},
 		},
 		{
 			name = "identifier followed by operator",
 			input = "x=",
-			expected = []Token_Kind{.Ident, .Equal},
+			expected = []syntax.Token_Kind{.Ident, .Equal},
 		},
 		{
 			name = "multiple identifiers",
 			input = "foo bar",
-			expected = []Token_Kind{.Ident, .Ident},
+			expected = []syntax.Token_Kind{.Ident, .Ident},
 		},
 		{
 			name = "identifier with newline",
 			input = "name\n",
-			expected = []Token_Kind{.Ident, .New_Line},
+			expected = []syntax.Token_Kind{.Ident, .New_Line},
 		},
 		{
 			name = "identifier between braces",
 			input = "{foo}",
-			expected = []Token_Kind{.Left_Brace, .Ident, .Right_Brace},
+			expected = []syntax.Token_Kind{.Left_Brace, .Ident, .Right_Brace},
 		},
 	}
 
@@ -1147,20 +1148,20 @@ test_lexer_keywords :: proc(t: ^testing.T) {
 	tests := []struct {
 		name:         string,
 		input:        string,
-		expected:     []Token_Kind,
-		keyword_kind: Keyword,
+		expected:     []syntax.Token_Kind,
+		keyword_kind: syntax.Keyword,
 	} {
-		{name = "fn keyword", input = "fn", expected = []Token_Kind{.Keyword}, keyword_kind = .Fn},
+		{name = "fn keyword", input = "fn", expected = []syntax.Token_Kind{.Keyword}, keyword_kind = .Fn},
 		{
 			name = "fn keyword followed by identifier",
 			input = "fn name",
-			expected = []Token_Kind{.Keyword, .Ident},
+			expected = []syntax.Token_Kind{.Keyword, .Ident},
 			keyword_kind = .Fn,
 		},
 		{
 			name = "fn keyword in assignment",
 			input = "x = fn()",
-			expected = []Token_Kind{.Ident, .Equal, .Keyword, .Left_Paren, .Right_Paren},
+			expected = []syntax.Token_Kind{.Ident, .Equal, .Keyword, .Left_Paren, .Right_Paren},
 			keyword_kind = .Fn,
 		},
 	}

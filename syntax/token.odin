@@ -1,4 +1,4 @@
-package lexer
+package syntax
 
 Token :: struct {
 	kind:         Token_Kind,
@@ -11,10 +11,38 @@ Token :: struct {
 	keyword:      Maybe(Keyword),
 }
 
+Token_Kind :: enum {
+	New_Line,
+	Left_Paren,
+	Right_Paren,
+	Left_Brace,
+	Right_Brace,
+	Comma,
+	Dot,
+	Minus,
+	Plus,
+	Star,
+	Bang,
+	Colon,
+	Colon_Colon,
+	Bang_Equal,
+	Equal_Equal,
+	Equal,
+	Colon_Equal,
+	Less_Equal,
+	Less,
+	Greater_Equal,
+	Greater,
+	Comment,
+	Slash,
+	Literal,
+	Ident,
+	Keyword,
+}
+
 Literal_Kind :: enum {
 	Number,
 	String,
 	Boolean,
 	Nil,
 }
-
