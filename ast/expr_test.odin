@@ -5,7 +5,7 @@ import "core:strings"
 import "core:testing"
 
 @(test)
-test_ast_printer_smoke :: proc(t: ^testing.T) {
+test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
 	source := "1 + 2 * (3 - 4)"
 
 	ast := syntax.Expr {
@@ -77,7 +77,7 @@ test_ast_printer_smoke :: proc(t: ^testing.T) {
 	}
 
 	builder := strings.Builder{}
-	print_ast_from_expr(&builder, source, &ast)
+	build_ast_from_expr(&builder, source, &ast)
 	out := strings.to_string(builder)
 
 	expected := "(+ 1 (* 2 (- 3 4)))"
@@ -213,8 +213,10 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 		ast := test.input
 
 		builder := strings.Builder{}
-		print_ast_from_expr(&builder, test.source, &ast)
-		out := strings.to_string(builder)
+		defer strings.builder_destroy(&builder)
+
+		build_ast_from_expr(&builder, test.source, &ast)
+		out := strings.to_string(builder) // @Allocation
 
 		if out != test.expected {
 			testing.expectf(

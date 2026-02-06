@@ -5,6 +5,8 @@ build/
 *.dll
 *.so
 *.dylib
+*.bin
+debug_*
 
 # IDEs and editors
 .idea/

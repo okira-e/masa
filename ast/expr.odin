@@ -3,15 +3,22 @@ package ast
 import "../syntax"
 import "core:strings"
 
-print_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^syntax.Expr) {
+// Builds a string AST tree from an expression.
+//
+// This function takes the source code of the expression to capture the lexemes since they
+// do not get stored on the token in this compiler.
+build_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^syntax.Expr) {
 	switch expr in expr.expr {
 	case syntax.Literal_Expr:
 		{
-			lexeme := get_lexeme_from_source(
-				source,
-				expr.token.lexeme_start,
-				expr.token.lexeme_end,
-			)
+			lexeme := "---"
+			if source != "" {
+				lexeme = get_lexeme_from_source(
+					source,
+					expr.token.lexeme_start,
+					expr.token.lexeme_end,
+				)
+			}
 			strings.write_string(builder, lexeme)
 		}
 	case syntax.Unary_Expr:
@@ -19,7 +26,7 @@ print_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^sy
 			strings.write_byte(builder, '(')
 			strings.write_string(builder, get_string_for_op(expr.op))
 			strings.write_byte(builder, ' ')
-			print_ast_from_expr(builder, source, expr.right)
+			build_ast_from_expr(builder, source, expr.right)
 			strings.write_byte(builder, ')')
 		}
 	case syntax.Binary_Expr:
@@ -27,9 +34,9 @@ print_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^sy
 			strings.write_byte(builder, '(')
 			strings.write_string(builder, get_string_for_op(expr.op))
 			strings.write_byte(builder, ' ')
-			print_ast_from_expr(builder, source, expr.left)
+			build_ast_from_expr(builder, source, expr.left)
 			strings.write_byte(builder, ' ')
-			print_ast_from_expr(builder, source, expr.right)
+			build_ast_from_expr(builder, source, expr.right)
 			strings.write_byte(builder, ')')
 		}
 	case syntax.Grouping_Expr:
@@ -37,7 +44,7 @@ print_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^sy
 			// Presedence presentation by grouping things in paranthesis is already
 			// encoded in the ast by nesting. We don't need really need to add paranthesis
 			// or do anything.
-			print_ast_from_expr(builder, source, expr.expr)
+			build_ast_from_expr(builder, source, expr.expr)
 		}
 	}
 }
@@ -81,3 +88,4 @@ get_lexeme_from_source :: proc(source: string, start: int, end: int) -> string {
 	assert(start >= 0 && end <= len(source) && start <= end)
 	return source[start:end]
 }
+

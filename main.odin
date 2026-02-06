@@ -1,8 +1,10 @@
 package main
 
 import "core:fmt"
+import "core:mem"
 import "core:os"
 import "lexer"
+import "parser"
 
 main :: proc() {
 	args := os.args
@@ -34,11 +36,22 @@ main :: proc() {
 	l := lexer.Lexer{}
 	lexer.init(&l)
 
-	tokens, err := lexer.scan(&l, transmute(string)source)
+	tokens, lexing_err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
-	if err != nil {
-		fmt.fprintf(os.stderr, "Error while scanning: %s\n", err)
+	if lexing_err != nil {
+		fmt.fprintf(os.stderr, "Error while scanning: %s\n", lexing_err)
 		os.exit(1)
 	}
 	_ = tokens
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+
+	p: parser.Parser
+	parser.init(&p, tokens[:], arena_alloc)
+	exprs, _ := parser.parse(&p)
+	defer delete(exprs)
+	defer mem.dynamic_arena_destroy(&arena)
+
 }

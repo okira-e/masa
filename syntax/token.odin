@@ -38,11 +38,12 @@ Token_Kind :: enum {
 	Literal,
 	Ident,
 	Keyword,
+	EOF,
 }
 
 Literal_Kind :: enum {
 	Number,
 	String,
-	Boolean,
+	Bool,
 	Nil,
 }

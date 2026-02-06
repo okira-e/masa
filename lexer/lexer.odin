@@ -1,8 +1,7 @@
 package lexer
 
-import "core:fmt"
-import "core:unicode"
 import "../syntax"
+import "core:unicode"
 
 Lexer :: struct {
 	current:           int,
@@ -82,7 +81,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 			}
 		case '!':
 			{
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if ok && next == '=' {
 					new_token := make_token(lexer, lexer.current, .Bang_Equal, nil, nil)
 					append(&tokens, new_token)
@@ -96,7 +95,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 			}
 		case ':':
 			{
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if ok && next == '=' {
 					new_token := make_token(lexer, lexer.current, .Colon_Equal, nil, nil)
 					append(&tokens, new_token)
@@ -116,7 +115,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 			}
 		case '/':
 			{
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if ok && next == '/' {
 					// Keep advancing until a newline or end of input
 					skips := 0
@@ -124,7 +123,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 						lexer.current += 1
 						skips += 1
 
-						next, ok := peek(lexer, source)
+						next, ok := peek_next(lexer, source)
 						if !ok || next == '\n' {
 							break
 						}
@@ -140,7 +139,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 			}
 		case '=':
 			{
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if ok && next == '=' {
 					new_token := make_token(lexer, lexer.current, .Equal_Equal, nil, nil)
 					append(&tokens, new_token)
@@ -153,7 +152,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 			}
 		case '<':
 			{
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if ok && next == '=' {
 					new_token := make_token(lexer, lexer.current, .Less_Equal, nil, nil)
 					append(&tokens, new_token)
@@ -166,7 +165,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 			}
 		case '>':
 			{
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if ok && next == '=' {
 					new_token := make_token(lexer, lexer.current, .Greater_Equal, nil, nil)
 					append(&tokens, new_token)
@@ -181,7 +180,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 		case '"':
 			{
 				// @TODO: do escapes and shit
-				next, ok := peek(lexer, source)
+				next, ok := peek_next(lexer, source)
 				if !ok || next == '\n' {
 					err = .Unterminated_String_Literal
 					break
@@ -191,7 +190,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 				lexer.current += 1 // Move to first char in the string
 				if source[lexer.current] != '"' { 	// String is not empty
 					for {
-						next, ok := peek(lexer, source)
+						next, ok := peek_next(lexer, source)
 						if !ok || next == '\n' {
 							err = .Unterminated_String_Literal
 							break
@@ -222,7 +221,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 				if unicode.is_digit(rune(b)) || b == '.' { 	// Number literal
 					// Check if this is a dot, a beginning of a floating point number, or an illegal
 					// identifier name that starts with a number
-					next, ok := peek(lexer, source)
+					next, ok := peek_next(lexer, source)
 					if b == '.' &&
 					   (!ok || (ok && (!unicode.is_digit(rune(next)) && next != '.'))) {
 						new_token := make_token(lexer, lexer.current, .Dot, nil, nil)
@@ -239,7 +238,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 						skips := 0
 						if ok && (unicode.is_digit(rune(next)) || next == '.') {
 							for {
-								next, ok := peek(lexer, source)
+								next, ok := peek_next(lexer, source)
 								if ok && unicode.is_letter(rune(next)) {
 									err = .Ident_Starts_With_Number
 									break
@@ -273,13 +272,13 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 				} else if unicode.is_letter(rune(b)) || b == '_' { 	// Identifier or an internal keyword
 					skips := 0
 
-					next, ok := peek(lexer, source)
+					next, ok := peek_next(lexer, source)
 					if ok &&
 					   (unicode.is_letter(rune(next)) ||
 							   next == '_' ||
 							   unicode.is_digit(rune(next))) {
 						for {
-							next, ok := peek(lexer, source)
+							next, ok := peek_next(lexer, source)
 							if !ok ||
 							   (!unicode.is_letter(rune(next)) &&
 									   next != '_' &&
@@ -312,6 +311,8 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 		lexer.current += 1
 	}
 
+	// append(&tokens, syntax.Token{line = lexer.line, kind = .EOF}) // Don't think this is needed yet
+
 	return tokens, err
 }
 
@@ -334,8 +335,8 @@ make_token :: proc(
 	}
 }
 
-// peek shows you the next byte without advancing the cursor
-peek :: proc(lexer: ^Lexer, source: string) -> (byte, bool) {
+// shows you the next byte without advancing the cursor
+peek_next :: proc(lexer: ^Lexer, source: string) -> (byte, bool) {
 	if lexer.current >= len(source) - 1 {
 		return 0, false
 	}
@@ -359,5 +360,5 @@ lexer_error_to_string :: proc(err: Lexer_Error) -> string {
 		return "invalid number literal with multiple dots"
 	}
 
-	return fmt.aprintf("unknown lexer error: %v", err)
+	return ""
 }
