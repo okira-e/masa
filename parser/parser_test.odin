@@ -8,10 +8,137 @@ import "core:strings"
 import "core:testing"
 
 @(test)
-test_parser_smoke :: proc(t: ^testing.T) {
+test_basic_experssions :: proc(t: ^testing.T) {
 	tests := []Test {
 		Test {
-			name = "simple expression",
+			name = "smoke",
+			source = "1 / (2 * -5) + 1 == 3 == 4",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Slash, 2, 3), // /
+				make_token(.Left_Paren, 4, 5), // (
+				make_token(.Literal, 5, 6), // 2
+				make_token(.Star, 7, 8), // *
+				make_token(.Minus, 9, 10), // -
+				make_token(.Literal, 10, 11), // 5
+				make_token(.Right_Paren, 11, 12), // )
+				make_token(.Plus, 13, 14), // +
+				make_token(.Literal, 15, 16), // 1
+				make_token(.Equal_Equal, 17, 19), // ==
+				make_token(.Literal, 20, 21), // 3
+				make_token(.Equal_Equal, 22, 24), // ==
+				make_token(.Literal, 25, 26), // 4
+				make_token(.EOF, 26, 27),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Binary_Expr {
+									left = &syntax.Expr {
+										expr = syntax.Binary_Expr {
+											left = &syntax.Expr {
+												expr = syntax.Literal_Expr {
+													token = make_token(.Literal, 0, 1),
+												},
+											},
+											op = .Slash,
+											right = &syntax.Expr {
+												expr = syntax.Grouping_Expr {
+													expr = &syntax.Expr {
+														expr = syntax.Binary_Expr {
+															left = &syntax.Expr {
+																expr = syntax.Literal_Expr {
+																	token = make_token(
+																		.Literal,
+																		5,
+																		6,
+																	),
+																},
+															},
+															op = .Star,
+															right = &syntax.Expr {
+																expr = syntax.Unary_Expr {
+																	op = .Minus,
+																	right = &syntax.Expr {
+																		expr = syntax.Literal_Expr {
+																			token = make_token(
+																				.Literal,
+																				10,
+																				11,
+																			),
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+									op = .Plus,
+									right = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 15, 16),
+										},
+									},
+								},
+							},
+							op = .Equal_Equal,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 20, 21)},
+							},
+						},
+					},
+					op = .Equal_Equal,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 25, 26)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "grouping overrides precedence",
+			source = "(1 + 2) * 3",
+			input = []syntax.Token {
+				make_token(.Left_Paren, 0, 1), // (
+				make_token(.Literal, 1, 2), // 1
+				make_token(.Plus, 3, 4), // +
+				make_token(.Literal, 5, 6), // 2
+				make_token(.Right_Paren, 6, 7), // )
+				make_token(.Star, 8, 9), // *
+				make_token(.Literal, 10, 11), // 3
+				make_token(.EOF, 11, 12),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Grouping_Expr {
+							expr = &syntax.Expr {
+								expr = syntax.Binary_Expr {
+									left = &syntax.Expr {
+										expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+									},
+									op = .Plus,
+									right = &syntax.Expr {
+										expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
+									},
+								},
+							},
+						},
+					},
+					op = .Star,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "binary expression",
+			source = "1 == 2",
 			input = []syntax.Token {
 				make_token(.Literal, 0, 1),
 				make_token(.Equal_Equal, 2, 4),
@@ -31,7 +158,8 @@ test_parser_smoke :: proc(t: ^testing.T) {
 			},
 		},
 		Test {
-			name = "simple nested expression",
+			name = "nested binary expressions",
+			source = "1 > 2 == 3",
 			input = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Greater, 2, 3), // >
@@ -60,6 +188,544 @@ test_parser_smoke :: proc(t: ^testing.T) {
 				},
 			},
 		},
+		Test {
+			name = "term addition",
+			source = "1 + 2",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Plus, 2, 3), // +
+				make_token(.Literal, 4, 5), // 2
+				make_token(.EOF, 5, 6),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					},
+					op = .Plus,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "term subtraction",
+			source = "5 - 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 5
+				make_token(.Minus, 2, 3), // -
+				make_token(.Literal, 4, 5), // 3
+				make_token(.EOF, 5, 6),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					},
+					op = .Minus,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "factor multiplication",
+			source = "2 * 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 2
+				make_token(.Star, 2, 3), // *
+				make_token(.Literal, 4, 5), // 3
+				make_token(.EOF, 5, 6),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					},
+					op = .Star,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "factor division",
+			source = "10 / 2",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 10
+				make_token(.Slash, 2, 3), // /
+				make_token(.Literal, 4, 5), // 2
+				make_token(.EOF, 5, 6),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					},
+					op = .Slash,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "unary negation",
+			source = "-5",
+			input = []syntax.Token {
+				make_token(.Minus, 0, 1), // -
+				make_token(.Literal, 1, 2), // 5
+				make_token(.EOF, 2, 3),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Unary_Expr {
+					op = .Minus,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "unary logical not",
+			source = "!true",
+			input = []syntax.Token {
+				make_token(.Bang, 0, 1), // !
+				make_token(.Literal, 1, 2), // true
+				make_token(.EOF, 2, 3),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Unary_Expr {
+					op = .Bang,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "double unary",
+			source = "--5",
+			input = []syntax.Token {
+				make_token(.Minus, 0, 1), // -
+				make_token(.Minus, 1, 2), // -
+				make_token(.Literal, 2, 3), // 5
+				make_token(.EOF, 3, 4),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Unary_Expr {
+					op = .Minus,
+					right = &syntax.Expr {
+						expr = syntax.Unary_Expr {
+							op = .Minus,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 2, 3)},
+							},
+						},
+					},
+				},
+			},
+		},
+		Test {
+			name = "precedence: multiplication before addition",
+			source = "1 + 2 * 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Plus, 2, 3), // +
+				make_token(.Literal, 4, 5), // 2
+				make_token(.Star, 6, 7), // *
+				make_token(.Literal, 8, 9), // 3
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					},
+					op = .Plus,
+					right = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+							op = .Star,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+							},
+						},
+					},
+				},
+			},
+		},
+		Test {
+			name = "precedence: division before subtraction",
+			source = "10 - 6 / 2",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 10
+				make_token(.Minus, 2, 3), // -
+				make_token(.Literal, 4, 5), // 6
+				make_token(.Slash, 6, 7), // /
+				make_token(.Literal, 8, 9), // 2
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					},
+					op = .Minus,
+					right = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+							op = .Slash,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+							},
+						},
+					},
+				},
+			},
+		},
+		Test {
+			name = "precedence: unary before multiplication",
+			source = "-2 * 3",
+			input = []syntax.Token {
+				make_token(.Minus, 0, 1), // -
+				make_token(.Literal, 1, 2), // 2
+				make_token(.Star, 3, 4), // *
+				make_token(.Literal, 5, 6), // 3
+				make_token(.EOF, 6, 7),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Unary_Expr {
+							op = .Minus,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+							},
+						},
+					},
+					op = .Star,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "complex precedence",
+			source = "1 + 2 * 3 > 4",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Plus, 2, 3), // +
+				make_token(.Literal, 4, 5), // 2
+				make_token(.Star, 6, 7), // *
+				make_token(.Literal, 8, 9), // 3
+				make_token(.Greater, 10, 11), // >
+				make_token(.Literal, 12, 13), // 4
+				make_token(.EOF, 13, 14),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Plus,
+							right = &syntax.Expr {
+								expr = syntax.Binary_Expr {
+									left = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 4, 5),
+										},
+									},
+									op = .Star,
+									right = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 8, 9),
+										},
+									},
+								},
+							},
+						},
+					},
+					op = .Greater,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 12, 13)},
+					},
+				},
+			},
+		},
+		// Operator chaining tests (multiple operators at same precedence level)
+		Test {
+			name = "chained addition (left associative)",
+			source = "1 + 2 + 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Plus, 2, 3), // +
+				make_token(.Literal, 4, 5), // 2
+				make_token(.Plus, 6, 7), // +
+				make_token(.Literal, 8, 9), // 3
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Plus,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+						},
+					},
+					op = .Plus,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "chained multiplication (left associative)",
+			source = "2 * 3 * 4",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 2
+				make_token(.Star, 2, 3), // *
+				make_token(.Literal, 4, 5), // 3
+				make_token(.Star, 6, 7), // *
+				make_token(.Literal, 8, 9), // 4
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Star,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+						},
+					},
+					op = .Star,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "mixed addition and subtraction",
+			source = "10 + 5 - 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 10
+				make_token(.Plus, 2, 3), // +
+				make_token(.Literal, 4, 5), // 5
+				make_token(.Minus, 6, 7), // -
+				make_token(.Literal, 8, 9), // 3
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Plus,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+						},
+					},
+					op = .Minus,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "mixed multiplication and division",
+			source = "12 * 2 / 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 12
+				make_token(.Star, 2, 3), // *
+				make_token(.Literal, 4, 5), // 2
+				make_token(.Slash, 6, 7), // /
+				make_token(.Literal, 8, 9), // 3
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Star,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+						},
+					},
+					op = .Slash,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "chained equality",
+			source = "1 == 2 == 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Equal_Equal, 2, 4), // ==
+				make_token(.Literal, 5, 6), // 2
+				make_token(.Equal_Equal, 7, 9), // ==
+				make_token(.Literal, 10, 11), // 3
+				make_token(.EOF, 11, 12),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Equal_Equal,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
+							},
+						},
+					},
+					op = .Equal_Equal,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "mixed equality operators",
+			source = "1 == 2 != 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Equal_Equal, 2, 4), // ==
+				make_token(.Literal, 5, 6), // 2
+				make_token(.Bang_Equal, 7, 9), // !=
+				make_token(.Literal, 10, 11), // 3
+				make_token(.EOF, 11, 12),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Equal_Equal,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
+							},
+						},
+					},
+					op = .Bang_Equal,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "chained comparison",
+			source = "1 < 2 < 3",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Less, 2, 3), // <
+				make_token(.Literal, 4, 5), // 2
+				make_token(.Less, 6, 7), // <
+				make_token(.Literal, 8, 9), // 3
+				make_token(.EOF, 9, 10),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							},
+							op = .Less,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+							},
+						},
+					},
+					op = .Less,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+					},
+				},
+			},
+		},
+		Test {
+			name = "long chained expression",
+			source = "1 + 2 + 3 + 4",
+			input = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Plus, 2, 3), // +
+				make_token(.Literal, 4, 5), // 2
+				make_token(.Plus, 6, 7), // +
+				make_token(.Literal, 8, 9), // 3
+				make_token(.Plus, 10, 11), // +
+				make_token(.Literal, 12, 13), // 4
+				make_token(.EOF, 13, 14),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Binary_Expr {
+					left = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Binary_Expr {
+									left = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 0, 1),
+										},
+									},
+									op = .Plus,
+									right = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 4, 5),
+										},
+									},
+								},
+							},
+							op = .Plus,
+							right = &syntax.Expr {
+								expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
+							},
+						},
+					},
+					op = .Plus,
+					right = &syntax.Expr {
+						expr = syntax.Literal_Expr{token = make_token(.Literal, 12, 13)},
+					},
+				},
+			},
+		},
 	}
 
 	for test, i in tests {
@@ -77,7 +743,7 @@ test_parser_smoke :: proc(t: ^testing.T) {
 		defer strings.builder_destroy(&builder)
 
 		if err != nil {
-			ast.build_ast_from_expr(&builder, "", exprs[0])
+			ast.build_ast_from_expr(&builder, test.source, exprs[0])
 			log.info(strings.to_string(builder))
 
 			testing.expectf(t, false, "unexpected error in %s: %v", test.name, err)
@@ -85,7 +751,7 @@ test_parser_smoke :: proc(t: ^testing.T) {
 		}
 
 		if len(exprs) != 1 {
-			ast.build_ast_from_expr(&builder, "", exprs[0])
+			ast.build_ast_from_expr(&builder, test.source, exprs[0])
 			log.info(strings.to_string(builder))
 
 			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(exprs))
@@ -96,7 +762,7 @@ test_parser_smoke :: proc(t: ^testing.T) {
 
 		expected := test.expected
 		if !syntax.expr_eq(got, &expected) {
-			ast.build_ast_from_expr(&builder, "", exprs[0])
+			ast.build_ast_from_expr(&builder, test.source, exprs[0])
 			log.infof("AST: %s", strings.to_string(builder))
 
 			testing.expectf(
@@ -121,5 +787,6 @@ make_token :: proc(kind: syntax.Token_Kind, start: int, end: int) -> syntax.Toke
 Test :: struct {
 	name:     string,
 	input:    []syntax.Token,
+	source:   string,
 	expected: syntax.Expr,
 }

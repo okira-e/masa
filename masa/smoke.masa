@@ -17,7 +17,6 @@ dimensions :: fn(foo: Vector) -> number, number {
 v := Vector{x: 3, y: 5}
 v = new_vector(3, 5)
 
-x, y := v.dimensions()
 x, y := dimensions(v)
 
 foo :: fn() -> number {

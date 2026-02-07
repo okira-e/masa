@@ -55,8 +55,12 @@ parse_expr :: proc(parser: ^Parser) -> ^syntax.Expr {
 parse_equality :: proc(parser: ^Parser) -> ^syntax.Expr {
 	expr := parse_comparison(parser)
 
-	current_token := &parser.tokens[parser.current]
-	if matches(current_token.kind, .Bang_Equal, .Equal_Equal) {
+	for {
+		current_token, _ := get_current_token(parser)
+		if !matches(current_token.kind, .Bang_Equal, .Equal_Equal) {
+			break
+		}
+
 		_, _ = advance(parser)
 
 		result := new(syntax.Expr, parser.alloc)
@@ -76,8 +80,12 @@ parse_equality :: proc(parser: ^Parser) -> ^syntax.Expr {
 parse_comparison :: proc(parser: ^Parser) -> ^syntax.Expr {
 	expr := parse_term(parser)
 
-	current_token := &parser.tokens[parser.current]
-	if matches(current_token.kind, .Greater, .Greater_Equal, .Less, .Less_Equal) {
+	for {
+		current_token, _ := get_current_token(parser)
+		if !matches(current_token.kind, .Greater, .Greater_Equal, .Less, .Less_Equal) {
+			break
+		}
+
 		_, _ = advance(parser)
 
 		result := new(syntax.Expr, parser.alloc)
@@ -97,25 +105,72 @@ parse_comparison :: proc(parser: ^Parser) -> ^syntax.Expr {
 parse_term :: proc(parser: ^Parser) -> ^syntax.Expr {
 	expr := parse_factor(parser)
 
+	for {
+		current_token, _ := get_current_token(parser)
+		if !matches(current_token.kind, .Minus, .Plus) {
+			break
+		}
+
+		_, _ = advance(parser)
+
+		result := new(syntax.Expr, parser.alloc)
+		result^ = syntax.Expr {
+			expr = syntax.Binary_Expr {
+				left = expr,
+				op = current_token.kind,
+				right = parse_factor(parser),
+			},
+		}
+		expr = result
+	}
+
 	return expr
 }
 
 parse_factor :: proc(parser: ^Parser) -> ^syntax.Expr {
 	expr := parse_unary(parser)
 
+	for {
+		current_token, _ := get_current_token(parser)
+		if !matches(current_token.kind, .Slash, .Star) {
+			break
+		}
+
+		_, _ = advance(parser)
+
+		result := new(syntax.Expr, parser.alloc)
+		result^ = syntax.Expr {
+			expr = syntax.Binary_Expr {
+				left = expr,
+				op = current_token.kind,
+				right = parse_unary(parser),
+			},
+		}
+		expr = result
+	}
+
 	return expr
 }
 
 parse_unary :: proc(parser: ^Parser) -> ^syntax.Expr {
-	expr := parse_primary(parser)
+	current_token, _ := get_current_token(parser)
+	if matches(current_token.kind, .Bang, .Minus) {
+		_, _ = advance(parser)
 
-	return expr
+		result := new(syntax.Expr, parser.alloc)
+		result^ = syntax.Expr {
+			expr = syntax.Unary_Expr{op = current_token.kind, right = parse_unary(parser)},
+		}
+		return result
+	}
+
+	return parse_primary(parser)
 }
 
 parse_primary :: proc(parser: ^Parser) -> ^syntax.Expr {
 	expr := new(syntax.Expr, parser.alloc)
 
-	current_token := parser.tokens[parser.current]
+	current_token, _ := get_current_token(parser)
 	#partial switch current_token.kind {
 	case .Literal:
 		{
@@ -125,9 +180,24 @@ parse_primary :: proc(parser: ^Parser) -> ^syntax.Expr {
 			expr^ = result
 			_, _ = advance(parser)
 		}
+	case .Left_Paren:
+		{
+			_, _ = advance(parser)
+			expr_inner := parse_expr(parser)
+
+			if parser.tokens[parser.current].kind != .Right_Paren {
+				panic("Let's all panic together. I'll start")
+			}
+
+			_, _ = advance(parser)
+
+			expr^ = syntax.Expr {
+				expr = syntax.Grouping_Expr{expr = expr_inner},
+			}
+		}
 	case:
 		{
-			panic("Not a primary rule")
+			panic("unreachable?")
 		}
 	}
 
@@ -136,15 +206,15 @@ parse_primary :: proc(parser: ^Parser) -> ^syntax.Expr {
 
 // Advances and returns: previous token, success
 @(private)
-advance :: proc(parser: ^Parser) -> (^syntax.Token, bool) {
-	prev := &parser.tokens[parser.current]
+advance :: proc(parser: ^Parser) -> (syntax.Token, bool) {
+	prev := parser.tokens[parser.current]
 	_, ok := peek(parser)
 	if ok {
 		parser.current += 1
 		return prev, true
 	}
 
-	return nil, false
+	return syntax.Token{}, false
 }
 
 @(private)
@@ -158,7 +228,7 @@ peek :: proc(parser: ^Parser) -> (^syntax.Token, bool) {
 
 @(private)
 is_at_end :: proc(parser: ^Parser) -> bool {
-	return parser.tokens[parser.current].kind == .EOF
+	return parser.current < len(parser.tokens) && parser.tokens[parser.current].kind == .EOF
 }
 
 @(private)
@@ -170,6 +240,13 @@ matches :: proc(lhs: syntax.Token_Kind, rhs: ..syntax.Token_Kind) -> bool {
 	}
 
 	return false
+}
+
+// Returns the current token with a flag for if the current token is the EOF one.
+@(private)
+get_current_token :: proc(parser: ^Parser) -> (syntax.Token, bool) {
+	token := parser.tokens[parser.current]
+	return token, token.kind == .EOF
 }
 
 Parser_Error :: enum {}

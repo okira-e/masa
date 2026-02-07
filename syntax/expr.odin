@@ -1,7 +1,5 @@
 package syntax
 
-import "core:log"
-
 Expr_Kind :: union {
 	Literal_Expr,
 	Unary_Expr,
@@ -41,7 +39,6 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 	case Binary_Expr:
 		{
 			if _, ok := b.expr.(Binary_Expr); !ok {
-				log.info("HERE: Binary_Expr")
 				return false
 			}
 
@@ -57,7 +54,6 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 	case Literal_Expr:
 		{
 			if _, ok := b.expr.(Literal_Expr); !ok {
-				log.info("HERE: Literal_Expr")
 				return false
 			}
 
@@ -66,7 +62,6 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 	case Unary_Expr:
 		{
 			if _, ok := b.expr.(Unary_Expr); !ok {
-				log.info("HERE: Unary_Expr")
 				return false
 			}
 
@@ -78,7 +73,6 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 	case Grouping_Expr:
 		{
 			if _, ok := b.expr.(Grouping_Expr); !ok {
-				log.info("HERE: Grouping_Expr")
 				return false
 			}
 
@@ -89,5 +83,5 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 		}
 	}
 
-	return true
+	return false
 }
