@@ -22,19 +22,13 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	fmt.printf("Charachters: \n")
-	for b in source {
-		if b == '\n' {
-			fmt.printf("\\n")
-		} else {
-			fmt.printf("%c", b)
-		}
-	}
-	fmt.println()
-	fmt.println()
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
 
 	l := lexer.Lexer{}
-	lexer.init(&l)
+	lexer.init(&l, arena_alloc)
 
 	tokens, lexing_err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
@@ -44,14 +38,8 @@ main :: proc() {
 	}
 	_ = tokens
 
-	arena: mem.Dynamic_Arena
-	mem.dynamic_arena_init(&arena)
-	arena_alloc := mem.dynamic_arena_allocator(&arena)
-
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
 	exprs, _ := parser.parse(&p)
 	defer delete(exprs)
-	defer mem.dynamic_arena_destroy(&arena)
-
 }

@@ -48,7 +48,8 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
 		}
 	}
 
-	exprs := [dynamic]^syntax.Expr{}
+	// worst case: assume one expression per token
+	exprs := make([dynamic]^syntax.Expr, 0, len(parser.tokens), parser.alloc)
 
 	for !is_at_end(parser) {
 		expr, parser_err := parse_expr(parser)

@@ -1,24 +1,27 @@
 package lexer
 
 import "../syntax"
+import "core:mem"
 import "core:unicode"
 
 Lexer :: struct {
+	alloc:             mem.Allocator,
 	current:           int,
 	line:              int,
 	column:            int,
 	last_lexeme_start: int,
 }
 
-init :: proc(lexer: ^Lexer) {
+init :: proc(lexer: ^Lexer, alloc: mem.Allocator = context.allocator) {
 	lexer.current = 0
 	lexer.line = 0
 	lexer.column = 0
 	lexer.last_lexeme_start = 0
+	lexer.alloc = alloc
 }
 
 scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_Error)) {
-	tokens := [dynamic]syntax.Token{}
+	tokens := make([dynamic]syntax.Token, 0, len(source) / 4, lexer.alloc)
 	lexer.line += 1
 
 	err: Maybe(Lexer_Error) = nil
