@@ -8,7 +8,7 @@ import "core:strings"
 import "core:testing"
 
 @(test)
-test_basic_experssions :: proc(t: ^testing.T) {
+test_basic_expressions :: proc(t: ^testing.T) {
 	tests := []Test {
 		Test {
 			name = "smoke",
@@ -119,11 +119,15 @@ test_basic_experssions :: proc(t: ^testing.T) {
 							expr = &syntax.Expr {
 								expr = syntax.Binary_Expr {
 									left = &syntax.Expr {
-										expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 1, 2),
+										},
 									},
 									op = .Plus,
 									right = &syntax.Expr {
-										expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 5, 6),
+										},
 									},
 								},
 							},
@@ -726,6 +730,67 @@ test_basic_experssions :: proc(t: ^testing.T) {
 				},
 			},
 		},
+		Test {
+			name = "multiple groupings with equality",
+			source = "(1 + 2 == (2 + 1))",
+			input = []syntax.Token {
+				make_token(.Left_Paren, 0, 1), // (
+				make_token(.Literal, 1, 2), // 1
+				make_token(.Plus, 3, 4), // +
+				make_token(.Literal, 5, 6), // 2
+				make_token(.Equal_Equal, 7, 9), // ==
+				make_token(.Left_Paren, 10, 11), // (
+				make_token(.Literal, 11, 12), // 2
+				make_token(.Plus, 13, 14), // +
+				make_token(.Literal, 15, 16), // 1
+				make_token(.Right_Paren, 16, 17), // )
+				make_token(.Right_Paren, 17, 18), // )
+				make_token(.EOF, 18, 19),
+			},
+			expected = syntax.Expr {
+				expr = syntax.Grouping_Expr {
+					expr = &syntax.Expr {
+						expr = syntax.Binary_Expr {
+							left = &syntax.Expr {
+								expr = syntax.Binary_Expr {
+									left = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 1, 2),
+										},
+									},
+									op = .Plus,
+									right = &syntax.Expr {
+										expr = syntax.Literal_Expr {
+											token = make_token(.Literal, 5, 6),
+										},
+									},
+								},
+							},
+							op = .Equal_Equal,
+							right = &syntax.Expr {
+								expr = syntax.Grouping_Expr {
+									expr = &syntax.Expr {
+										expr = syntax.Binary_Expr {
+											left = &syntax.Expr {
+												expr = syntax.Literal_Expr {
+													token = make_token(.Literal, 11, 12),
+												},
+											},
+											op = .Plus,
+											right = &syntax.Expr {
+												expr = syntax.Literal_Expr {
+													token = make_token(.Literal, 15, 16),
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for test, i in tests {
@@ -735,25 +800,18 @@ test_basic_experssions :: proc(t: ^testing.T) {
 
 		parser: Parser
 		init(&parser, test.input, arena_alloc)
-		exprs, err := parse(&parser)
+		exprs, parser_err := parse(&parser)
 		defer delete(exprs)
 		defer mem.dynamic_arena_destroy(&arena)
 
-		builder := strings.builder_make()
-		defer strings.builder_destroy(&builder)
-
-		if err != nil {
-			ast.build_ast_from_expr(&builder, test.source, exprs[0])
-			log.info(strings.to_string(builder))
-
-			testing.expectf(t, false, "unexpected error in %s: %v", test.name, err)
+		if parser_err != nil {
+			log_ast(test.source, exprs[:])
+			testing.expectf(t, false, "%s: unexpected error: %v", test.name, parser_err)
 			testing.fail_now(t)
 		}
 
 		if len(exprs) != 1 {
-			ast.build_ast_from_expr(&builder, test.source, exprs[0])
-			log.info(strings.to_string(builder))
-
+			log_ast(test.source, exprs[:])
 			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(exprs))
 			testing.fail_now(t)
 		}
@@ -762,9 +820,7 @@ test_basic_experssions :: proc(t: ^testing.T) {
 
 		expected := test.expected
 		if !syntax.expr_eq(got, &expected) {
-			ast.build_ast_from_expr(&builder, test.source, exprs[0])
-			log.infof("AST: %s", strings.to_string(builder))
-
+			log_ast(test.source, exprs[:])
 			testing.expectf(
 				t,
 				false,
@@ -778,6 +834,109 @@ test_basic_experssions :: proc(t: ^testing.T) {
 	}
 }
 
+@(test)
+test_basic_expressions_errors :: proc(t: ^testing.T) {
+	tests := []Test {
+		Test {
+			name         = "unexpected EOF",
+			source       = "1 /",
+			input        = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Slash, 2, 3), // /
+				make_token(.EOF, 26, 27),
+			},
+			should_error = true,
+			error_kind   = .Unexpected_EOF,
+		},
+		Test {
+			name         = "unclosed parenthesis",
+			source       = "(1 + 2 / ( 4",
+			input        = []syntax.Token {
+				make_token(.Left_Paren, 0, 1), // (
+				make_token(.Literal, 1, 2), // 1
+				make_token(.Plus, 3, 4), // +
+				make_token(.Literal, 5, 6), // 2
+				make_token(.Slash, 7, 8), // /
+				make_token(.Left_Paren, 9, 10), // (
+				make_token(.Literal, 11, 12), // 4
+				make_token(.EOF, 12, 13),
+			},
+			should_error = true,
+			error_kind   = .UnclosedParen,
+		},
+		Test {
+			name         = "single open paren",
+			source       = "(",
+			input        = []syntax.Token {
+				make_token(.Left_Paren, 0, 1), // (
+				make_token(.EOF, 12, 13),
+			},
+			should_error = true,
+			error_kind   = .Unexpected_EOF,
+		},
+		Test {
+			name         = "unexpected closing parenthesis",
+			source       = ") 1",
+			input        = []syntax.Token {
+				make_token(.Right_Paren, 0, 1), // )
+				make_token(.Literal, 2, 3), // 1
+				make_token(.EOF, 12, 13),
+			},
+			should_error = true,
+			error_kind   = .Unexpected_Token,
+		},
+		Test {
+			name         = "operator instead of an expression",
+			source       = "1 == +",
+			input        = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Equal_Equal, 2, 4), // ==
+				make_token(.Plus, 5, 6), // +
+				make_token(.EOF, 6, 7),
+			},
+			should_error = true,
+			error_kind   = .Unexpected_Token,
+		},
+	}
+
+	for test, i in tests {
+		arena: mem.Dynamic_Arena
+		mem.dynamic_arena_init(&arena)
+		arena_alloc := mem.dynamic_arena_allocator(&arena)
+
+		parser: Parser
+		init(&parser, test.input, arena_alloc)
+		exprs, parser_err := parse(&parser)
+		defer delete(exprs)
+		defer mem.dynamic_arena_destroy(&arena)
+
+		// log.infof("Error: %v", parser_err)
+
+		if test.should_error && parser_err == nil {
+			testing.expectf(
+				t,
+				false,
+				"%s: test passed when it was expected to error with: %v.",
+				test.name,
+				test.error_kind,
+			)
+			testing.fail_now(t)
+		}
+
+		if test.should_error && parser_err.?.kind != test.error_kind {
+			testing.expectf(
+				t,
+				false,
+				"%s: expected %v error. Found %v.",
+				test.name,
+				test.error_kind,
+				parser_err.?.kind,
+			)
+			testing.fail_now(t)
+		}
+	}
+}
+
 @(private = "file")
 make_token :: proc(kind: syntax.Token_Kind, start: int, end: int) -> syntax.Token {
 	return syntax.Token{kind = kind, line = 1, lexeme_start = start, lexeme_end = end}
@@ -785,8 +944,22 @@ make_token :: proc(kind: syntax.Token_Kind, start: int, end: int) -> syntax.Toke
 
 @(private = "file")
 Test :: struct {
-	name:     string,
-	input:    []syntax.Token,
-	source:   string,
-	expected: syntax.Expr,
+	name:         string,
+	input:        []syntax.Token,
+	source:       string,
+	expected:     syntax.Expr,
+	should_error: bool,
+	error_kind:   Parser_Error_Kind,
+}
+
+@(private = "file")
+log_ast :: proc(source: string, exprs: []^syntax.Expr) {
+	for expr, i in exprs {
+		builder := strings.builder_make()
+		defer strings.builder_destroy(&builder)
+
+		log.infof("Printing AST for expr %d", i + 1)
+		ast.build_ast_from_expr(&builder, source, exprs[0])
+		log.info(strings.to_string(builder))
+	}
 }

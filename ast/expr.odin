@@ -41,8 +41,8 @@ build_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^sy
 		}
 	case syntax.Grouping_Expr:
 		{
-			// Presedence presentation by grouping things in paranthesis is already
-			// encoded in the ast by nesting. We don't need really need to add paranthesis
+			// Precedence presentation by grouping things in parenthesis is already
+			// encoded in the ast by nesting. We don't need really need to add parenthesis
 			// or do anything.
 			build_ast_from_expr(builder, source, expr.expr)
 		}

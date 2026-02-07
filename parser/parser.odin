@@ -14,7 +14,7 @@ Parser development guide/rules:
 */
 
 /*
-Grammer in BNF notation:
+Grammar in BNF notation:
 
 - expression 	-> equality ;
 - equality 		-> comparison ( ( "!=" | "==" ) comparison )* ;
@@ -37,140 +37,194 @@ init :: proc(parser: ^Parser, tokens: []syntax.Token, alloc: mem.Allocator = con
 }
 
 parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
+	if len(parser.tokens) == 0 {
+		return nil, Parser_Error{kind = .Empty_Tokens, message = "No tokens found"}
+	}
+
+	if parser.tokens[len(parser.tokens) - 1].kind != .EOF {
+		return nil, Parser_Error {
+			kind = .Missing_EOF,
+			message = "Missing EOF token at the end of the token list",
+		}
+	}
+
 	exprs := [dynamic]^syntax.Expr{}
 
 	for !is_at_end(parser) {
-		append(&exprs, parse_expr(parser))
+		expr, parser_err := parse_expr(parser)
+		if parser_err != nil {
+			return exprs, parser_err
+		}
+
+		append(&exprs, expr)
 	}
 
 	return exprs, nil
 }
 
-parse_expr :: proc(parser: ^Parser) -> ^syntax.Expr {
-	expr := parse_equality(parser)
+parse_expr :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_equality(parser)
+	if err != nil {
+		return expr, err
+	}
 
-	return expr
+	return expr, nil
 }
 
-parse_equality :: proc(parser: ^Parser) -> ^syntax.Expr {
-	expr := parse_comparison(parser)
+parse_equality :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_comparison(parser)
+	if err != nil {
+		return expr, err
+	}
 
 	for {
-		current_token, _ := get_current_token(parser)
-		if !matches(current_token.kind, .Bang_Equal, .Equal_Equal) {
+		current_token, isEOF := get_current_token(parser)
+		if isEOF || !matches(current_token.kind, .Bang_Equal, .Equal_Equal) {
 			break
 		}
 
-		_, _ = advance(parser)
+		advance(parser)
+
+		right, err := parse_comparison(parser)
+		if err != nil {
+			return expr, err
+		}
 
 		result := new(syntax.Expr, parser.alloc)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr {
-				left = expr,
-				op = current_token.kind,
-				right = parse_comparison(parser),
-			},
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
 		expr = result
 	}
 
-	return expr
+	return expr, nil
 }
 
-parse_comparison :: proc(parser: ^Parser) -> ^syntax.Expr {
-	expr := parse_term(parser)
+parse_comparison :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_term(parser)
+	if err != nil {
+		return expr, err
+	}
 
 	for {
-		current_token, _ := get_current_token(parser)
-		if !matches(current_token.kind, .Greater, .Greater_Equal, .Less, .Less_Equal) {
+		current_token, isEOF := get_current_token(parser)
+		if isEOF || !matches(current_token.kind, .Greater, .Greater_Equal, .Less, .Less_Equal) {
 			break
 		}
 
-		_, _ = advance(parser)
+		advance(parser)
+
+		right, err := parse_term(parser)
+		if err != nil {
+			return expr, err
+		}
 
 		result := new(syntax.Expr, parser.alloc)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr {
-				left = expr,
-				op = current_token.kind,
-				right = parse_term(parser),
-			},
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
 		expr = result
 	}
 
-	return expr
+	return expr, nil
 }
 
-parse_term :: proc(parser: ^Parser) -> ^syntax.Expr {
-	expr := parse_factor(parser)
+parse_term :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_factor(parser)
+	if err != nil {
+		return expr, err
+	}
 
 	for {
-		current_token, _ := get_current_token(parser)
-		if !matches(current_token.kind, .Minus, .Plus) {
+		current_token, isEOF := get_current_token(parser)
+		if isEOF || !matches(current_token.kind, .Minus, .Plus) {
 			break
 		}
 
-		_, _ = advance(parser)
+		advance(parser)
+
+		right, err := parse_factor(parser)
+		if err != nil {
+			return expr, err
+		}
 
 		result := new(syntax.Expr, parser.alloc)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr {
-				left = expr,
-				op = current_token.kind,
-				right = parse_factor(parser),
-			},
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
 		expr = result
 	}
 
-	return expr
+	return expr, nil
 }
 
-parse_factor :: proc(parser: ^Parser) -> ^syntax.Expr {
-	expr := parse_unary(parser)
+parse_factor :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_unary(parser)
+	if err != nil {
+		return expr, err
+	}
 
 	for {
-		current_token, _ := get_current_token(parser)
-		if !matches(current_token.kind, .Slash, .Star) {
+		current_token, isEOF := get_current_token(parser)
+		if isEOF || !matches(current_token.kind, .Slash, .Star) {
 			break
 		}
 
-		_, _ = advance(parser)
+		advance(parser)
+
+		right, err := parse_unary(parser)
+		if err != nil {
+			return expr, err
+		}
 
 		result := new(syntax.Expr, parser.alloc)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr {
-				left = expr,
-				op = current_token.kind,
-				right = parse_unary(parser),
-			},
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
 		expr = result
 	}
 
-	return expr
+	return expr, nil
 }
 
-parse_unary :: proc(parser: ^Parser) -> ^syntax.Expr {
-	current_token, _ := get_current_token(parser)
+parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	current_token, isEOF := get_current_token(parser)
+	if isEOF {
+		return nil, Parser_Error {
+			kind = .Unexpected_EOF,
+			message = "Unexpected \"EOF\" token while parsing unary",
+		}
+	}
+
 	if matches(current_token.kind, .Bang, .Minus) {
-		_, _ = advance(parser)
+		advance(parser)
+
+		right, err := parse_unary(parser)
+		if err != nil {
+			return nil, err
+		}
 
 		result := new(syntax.Expr, parser.alloc)
 		result^ = syntax.Expr {
-			expr = syntax.Unary_Expr{op = current_token.kind, right = parse_unary(parser)},
+			expr = syntax.Unary_Expr{op = current_token.kind, right = right},
 		}
-		return result
+		return result, nil
 	}
 
 	return parse_primary(parser)
 }
 
-parse_primary :: proc(parser: ^Parser) -> ^syntax.Expr {
+parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr := new(syntax.Expr, parser.alloc)
 
-	current_token, _ := get_current_token(parser)
+	current_token, isEOF := get_current_token(parser)
+	if isEOF {
+		return expr, Parser_Error {
+			kind = .Unexpected_EOF,
+			message = "Unexpected \"EOF\" token while parsing primary",
+		}
+	}
+
 	#partial switch current_token.kind {
 	case .Literal:
 		{
@@ -178,18 +232,26 @@ parse_primary :: proc(parser: ^Parser) -> ^syntax.Expr {
 				expr = syntax.Literal_Expr{token = current_token},
 			}
 			expr^ = result
-			_, _ = advance(parser)
+			advance(parser)
 		}
 	case .Left_Paren:
 		{
-			_, _ = advance(parser)
-			expr_inner := parse_expr(parser)
-
-			if parser.tokens[parser.current].kind != .Right_Paren {
-				panic("Let's all panic together. I'll start")
+			advance(parser)
+			expr_inner, err := parse_expr(parser)
+			if err != nil {
+				return expr, err
 			}
 
-			_, _ = advance(parser)
+			current_token, isEOF := get_current_token(parser)
+			if isEOF || current_token.kind != .Right_Paren {
+				return expr, Parser_Error {
+					kind = .UnclosedParen,
+					message = "Expected a \")\" token",
+					token = current_token,
+				}
+			}
+
+			advance(parser)
 
 			expr^ = syntax.Expr {
 				expr = syntax.Grouping_Expr{expr = expr_inner},
@@ -197,33 +259,33 @@ parse_primary :: proc(parser: ^Parser) -> ^syntax.Expr {
 		}
 	case:
 		{
-			panic("unreachable?")
+			return expr, Parser_Error {
+				kind = .Unexpected_Token,
+				message = "Unexpected token while parsing primary",
+				token = current_token,
+			}
 		}
 	}
 
-	return expr
+	return expr, nil
 }
 
 // Advances and returns: previous token, success
 @(private)
 advance :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	prev := parser.tokens[parser.current]
-	_, ok := peek(parser)
-	if ok {
+	if prev.kind != .EOF {
 		parser.current += 1
 		return prev, true
+	} else {
+		return syntax.Token{}, false
 	}
-
-	return syntax.Token{}, false
 }
 
 @(private)
-peek :: proc(parser: ^Parser) -> (^syntax.Token, bool) {
-	if parser.current >= len(parser.tokens) - 1 {
-		return nil, false
-	}
-
-	return &parser.tokens[parser.current + 1], true
+peek :: proc(parser: ^Parser) -> ^syntax.Token {
+	assert(parser.current < len(parser.tokens))
+	return &parser.tokens[parser.current + 1]
 }
 
 @(private)
@@ -242,14 +304,30 @@ matches :: proc(lhs: syntax.Token_Kind, rhs: ..syntax.Token_Kind) -> bool {
 	return false
 }
 
-// Returns the current token with a flag for if the current token is the EOF one.
+// Returns the current token with a flag for if the token is the EOF one.
 @(private)
 get_current_token :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	token := parser.tokens[parser.current]
-	return token, token.kind == .EOF
+	if token.kind == .EOF {
+		return syntax.Token{}, true
+	}
+
+	return token, false
 }
 
-Parser_Error :: enum {}
+Parser_Error :: struct {
+	kind:    Parser_Error_Kind,
+	token:   syntax.Token,
+	message: string,
+}
+
+Parser_Error_Kind :: enum {
+	Unexpected_EOF,
+	Empty_Tokens,
+	Missing_EOF,
+	UnclosedParen,
+	Unexpected_Token,
+}
 
 parser_error_to_string :: proc(err: Parser_Error) -> string {
 	return ""
