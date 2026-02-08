@@ -5,23 +5,23 @@ import "core:mem"
 import "core:unicode"
 
 Lexer :: struct {
-	alloc:             mem.Allocator,
+	allocator:         mem.Allocator,
 	current:           int,
 	line:              int,
 	column:            int,
 	last_lexeme_start: int,
 }
 
-init :: proc(lexer: ^Lexer, alloc: mem.Allocator = context.allocator) {
+init :: proc(lexer: ^Lexer, allocator := context.allocator) {
 	lexer.current = 0
 	lexer.line = 0
 	lexer.column = 0
 	lexer.last_lexeme_start = 0
-	lexer.alloc = alloc
+	lexer.allocator = allocator
 }
 
 scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_Error)) {
-	tokens := make([dynamic]syntax.Token, 0, len(source) / 4, lexer.alloc)
+	tokens := make([dynamic]syntax.Token, 0, len(source) / 4, allocator = lexer.allocator)
 	lexer.line += 1
 
 	err: Maybe(Lexer_Error) = nil

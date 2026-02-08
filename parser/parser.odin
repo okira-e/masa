@@ -1,6 +1,7 @@
 package parser
 
 import "../syntax"
+import "core:fmt"
 import "core:mem"
 
 /*
@@ -25,15 +26,15 @@ Grammar in BNF notation:
 - primary 		-> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
 */
 Parser :: struct {
-	tokens:  []syntax.Token,
-	current: int,
-	alloc:   mem.Allocator,
+	tokens:    []syntax.Token,
+	current:   int,
+	allocator: mem.Allocator,
 }
 
-init :: proc(parser: ^Parser, tokens: []syntax.Token, alloc: mem.Allocator = context.allocator) {
+init :: proc(parser: ^Parser, tokens: []syntax.Token, allocator := context.allocator) {
 	parser.current = 0
 	parser.tokens = tokens
-	parser.alloc = alloc
+	parser.allocator = allocator
 }
 
 parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
@@ -49,7 +50,7 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
 	}
 
 	// worst case: assume one expression per token
-	exprs := make([dynamic]^syntax.Expr, 0, len(parser.tokens), parser.alloc)
+	exprs := make([dynamic]^syntax.Expr, 0, len(parser.tokens), allocator = parser.allocator)
 
 	for !is_at_end(parser) {
 		expr, parser_err := parse_expr(parser)
@@ -91,7 +92,7 @@ parse_equality :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 			return expr, err
 		}
 
-		result := new(syntax.Expr, parser.alloc)
+		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
@@ -120,7 +121,7 @@ parse_comparison :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error))
 			return expr, err
 		}
 
-		result := new(syntax.Expr, parser.alloc)
+		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
@@ -149,7 +150,7 @@ parse_term :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 			return expr, err
 		}
 
-		result := new(syntax.Expr, parser.alloc)
+		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
@@ -178,7 +179,7 @@ parse_factor :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 			return expr, err
 		}
 
-		result := new(syntax.Expr, parser.alloc)
+		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
 		}
@@ -194,6 +195,7 @@ parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		return nil, Parser_Error {
 			kind = .Unexpected_EOF,
 			message = "Unexpected \"EOF\" token while parsing unary",
+			token = parser.tokens[max(parser.current - 1, 0)],
 		}
 	}
 
@@ -205,7 +207,7 @@ parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 			return nil, err
 		}
 
-		result := new(syntax.Expr, parser.alloc)
+		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Unary_Expr{op = current_token.kind, right = right},
 		}
@@ -216,13 +218,14 @@ parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	expr := new(syntax.Expr, parser.alloc)
+	expr := new(syntax.Expr, allocator = parser.allocator)
 
 	current_token, isEOF := get_current_token(parser)
 	if isEOF {
 		return expr, Parser_Error {
 			kind = .Unexpected_EOF,
 			message = "Unexpected \"EOF\" token while parsing primary",
+			token = parser.tokens[max(parser.current - 1, 0)],
 		}
 	}
 
@@ -330,6 +333,39 @@ Parser_Error_Kind :: enum {
 	Unexpected_Token,
 }
 
-parser_error_to_string :: proc(err: Parser_Error) -> string {
-	return ""
+parser_error_to_string :: proc(err: Parser_Error, alloc := context.allocator) -> string {
+	switch err.kind {
+	case .Unexpected_EOF:
+		return fmt.aprintf(
+			"Unexpected EOF token at line %d, column %d",
+			err.token.line,
+			err.token.column,
+			allocator = alloc,
+		)
+
+	case .Empty_Tokens:
+		return fmt.aprintf("No tokens found", allocator = alloc)
+
+	case .Missing_EOF:
+		return fmt.aprintf("Missing EOF token at the end of the token list", allocator = alloc)
+
+	case .UnclosedParen:
+		return fmt.aprintf(
+			"Expected a \")\" token to close the parenthesis opened at line %d, column %d",
+			err.token.line,
+			err.token.column,
+			allocator = alloc,
+		)
+
+	case .Unexpected_Token:
+		return fmt.aprintf(
+			"Unexpected token of kind %s at line %d, column %d",
+			err.token.kind,
+			err.token.line,
+			err.token.column,
+			allocator = alloc,
+		)
+	}
+
+	return fmt.aprintf("", allocator = alloc)
 }

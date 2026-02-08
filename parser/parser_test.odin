@@ -910,7 +910,9 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 		defer delete(exprs)
 		defer mem.dynamic_arena_destroy(&arena)
 
-		// log.infof("Error: %v", parser_err)
+		// error_str := parser_error_to_string(parser_err.?, alloc = context.allocator)
+		// defer delete(error_str)
+		// log.infof("Error: %v", error_str)
 
 		if test.should_error && parser_err == nil {
 			testing.expectf(
@@ -939,7 +941,13 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 
 @(private = "file")
 make_token :: proc(kind: syntax.Token_Kind, start: int, end: int) -> syntax.Token {
-	return syntax.Token{kind = kind, line = 1, lexeme_start = start, lexeme_end = end}
+	return syntax.Token {
+		kind = kind,
+		line = 1,
+		lexeme_start = start,
+		lexeme_end = end,
+		column = start,
+	}
 }
 
 @(private = "file")
