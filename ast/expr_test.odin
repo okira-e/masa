@@ -76,7 +76,8 @@ test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
 		},
 	}
 
-	builder := strings.Builder{}
+	builder := strings.builder_make()
+	defer strings.builder_destroy(&builder)
 	build_ast_from_expr(&builder, source, &ast)
 	out := strings.to_string(builder)
 
@@ -212,12 +213,11 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 	for test in tests {
 		ast := test.input
 
-		builder := strings.Builder{}
+		builder := strings.builder_make()
 		defer strings.builder_destroy(&builder)
 
 		build_ast_from_expr(&builder, test.source, &ast)
-		out := strings.to_string(builder) // @Allocation
-		defer delete(out)
+		out := strings.to_string(builder)
 
 		if out != test.expected {
 			testing.expectf(
@@ -232,3 +232,4 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 		}
 	}
 }
+
