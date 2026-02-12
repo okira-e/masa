@@ -314,7 +314,7 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 		lexer.current += 1
 	}
 
-	// append(&tokens, syntax.Token{line = lexer.line, kind = .EOF}) // Don't think this is needed yet
+	append(&tokens, syntax.Token{line = lexer.line, kind = .EOF})
 
 	return tokens, err
 }

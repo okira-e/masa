@@ -333,28 +333,28 @@ Parser_Error_Kind :: enum {
 	Unexpected_Token,
 }
 
-parser_error_to_string :: proc(err: Parser_Error, alloc := context.allocator) -> string {
+parser_error_to_string :: proc(err: Parser_Error, allocator := context.allocator) -> string {
 	switch err.kind {
 	case .Unexpected_EOF:
 		return fmt.aprintf(
 			"Unexpected EOF token at line %d, column %d",
 			err.token.line,
 			err.token.column,
-			allocator = alloc,
+			allocator = allocator,
 		)
 
 	case .Empty_Tokens:
-		return fmt.aprintf("No tokens found", allocator = alloc)
+		return fmt.aprintf("No tokens found", allocator = allocator)
 
 	case .Missing_EOF:
-		return fmt.aprintf("Missing EOF token at the end of the token list", allocator = alloc)
+		return fmt.aprintf("Missing EOF token at the end of the token list", allocator = allocator)
 
 	case .UnclosedParen:
 		return fmt.aprintf(
 			"Expected a \")\" token to close the parenthesis opened at line %d, column %d",
 			err.token.line,
 			err.token.column,
-			allocator = alloc,
+			allocator = allocator,
 		)
 
 	case .Unexpected_Token:
@@ -363,9 +363,10 @@ parser_error_to_string :: proc(err: Parser_Error, alloc := context.allocator) ->
 			err.token.kind,
 			err.token.line,
 			err.token.column,
-			allocator = alloc,
+			allocator = allocator,
 		)
 	}
 
-	return fmt.aprintf("", allocator = alloc)
+	return fmt.aprintf("", allocator = allocator)
 }
+

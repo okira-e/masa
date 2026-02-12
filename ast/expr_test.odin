@@ -217,6 +217,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 
 		build_ast_from_expr(&builder, test.source, &ast)
 		out := strings.to_string(builder) // @Allocation
+		defer delete(out)
 
 		if out != test.expected {
 			testing.expectf(
