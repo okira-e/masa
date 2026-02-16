@@ -80,8 +80,8 @@ parse_equality :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	}
 
 	for {
-		current_token, isEOF := get_current_token(parser)
-		if isEOF || !matches(current_token.kind, .Bang_Equal, .Equal_Equal) {
+		current_token, is_eof := get_current_token(parser)
+		if is_eof || !matches(current_token.kind, .Bang_Equal, .Equal_Equal) {
 			break
 		}
 
@@ -109,8 +109,8 @@ parse_comparison :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error))
 	}
 
 	for {
-		current_token, isEOF := get_current_token(parser)
-		if isEOF || !matches(current_token.kind, .Greater, .Greater_Equal, .Less, .Less_Equal) {
+		current_token, is_eof := get_current_token(parser)
+		if is_eof || !matches(current_token.kind, .Greater, .Greater_Equal, .Less, .Less_Equal) {
 			break
 		}
 
@@ -138,8 +138,8 @@ parse_term :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	}
 
 	for {
-		current_token, isEOF := get_current_token(parser)
-		if isEOF || !matches(current_token.kind, .Minus, .Plus) {
+		current_token, is_eof := get_current_token(parser)
+		if is_eof || !matches(current_token.kind, .Minus, .Plus) {
 			break
 		}
 
@@ -167,8 +167,8 @@ parse_factor :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	}
 
 	for {
-		current_token, isEOF := get_current_token(parser)
-		if isEOF || !matches(current_token.kind, .Slash, .Star) {
+		current_token, is_eof := get_current_token(parser)
+		if is_eof || !matches(current_token.kind, .Slash, .Star) {
 			break
 		}
 
@@ -190,8 +190,8 @@ parse_factor :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	current_token, isEOF := get_current_token(parser)
-	if isEOF {
+	current_token, is_eof := get_current_token(parser)
+	if is_eof {
 		return nil, Parser_Error {
 			kind = .Unexpected_EOF,
 			message = "Unexpected \"EOF\" token while parsing unary",
@@ -220,8 +220,8 @@ parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr := new(syntax.Expr, allocator = parser.allocator)
 
-	current_token, isEOF := get_current_token(parser)
-	if isEOF {
+	current_token, is_eof := get_current_token(parser)
+	if is_eof {
 		return expr, Parser_Error {
 			kind = .Unexpected_EOF,
 			message = "Unexpected \"EOF\" token while parsing primary",
@@ -246,8 +246,8 @@ parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 				return expr, err
 			}
 
-			current_token, isEOF := get_current_token(parser)
-			if isEOF || current_token.kind != .Right_Paren {
+			current_token, is_eof := get_current_token(parser)
+			if is_eof || current_token.kind != .Right_Paren {
 				return expr, Parser_Error {
 					kind = .UnclosedParen,
 					message = "Expected a \")\" token",
