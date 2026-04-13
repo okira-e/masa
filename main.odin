@@ -30,11 +30,12 @@ main :: proc() {
 	}
 
 	filepath := args[0]
-	source, success := os.read_entire_file(filepath)
-	if !success {
-		fmt.fprintf(os.stderr, "Failed to read the \"%s\" file", filepath)
+	source, read_file_err := os.read_entire_file_from_path(filepath, allocator = context.allocator)
+	if read_file_err != nil {
+		fmt.fprintf(os.stderr, "Failed to read the \"%s\" file with: %s", filepath, read_file_err)
 		os.exit(1)
 	}
+	defer delete(source)
 
 	arena: mem.Dynamic_Arena
 	mem.dynamic_arena_init(&arena)
@@ -72,4 +73,3 @@ print_ast :: proc(exprs: []^syntax.Expr, source: string) {
 	defer delete(out)
 	fmt.println(out)
 }
-
