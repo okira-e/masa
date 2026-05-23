@@ -800,27 +800,27 @@ test_basic_expressions :: proc(t: ^testing.T) {
 
 		parser: Parser
 		init(&parser, test.input, arena_alloc)
-		exprs, parser_err := parse(&parser)
-		defer delete(exprs)
+		stmts, parser_err := parse(&parser)
+		defer delete(stmts)
 		defer mem.dynamic_arena_destroy(&arena)
 
 		if parser_err != nil {
-			log_ast(test.source, exprs[:])
+			log_ast(test.source, stmts[:])
 			testing.expectf(t, false, "%s: unexpected error: %v", test.name, parser_err)
 			testing.fail_now(t)
 		}
 
-		if len(exprs) != 1 {
-			log_ast(test.source, exprs[:])
-			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(exprs))
+		if len(stmts) != 1 {
+			log_ast(test.source, stmts[:])
+			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(stmts))
 			testing.fail_now(t)
 		}
 
-		got := exprs[0]
+		got := stmts[0]^.(syntax.Expr_Stmt).expr
 
 		expected := test.expected
 		if !syntax.expr_eq(got, &expected) {
-			log_ast(test.source, exprs[:])
+			log_ast(test.source, stmts[:])
 			testing.expectf(
 				t,
 				false,
@@ -906,8 +906,8 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 
 		parser: Parser
 		init(&parser, test.input, arena_alloc)
-		exprs, parser_err := parse(&parser)
-		defer delete(exprs)
+		stmts, parser_err := parse(&parser)
+		defer delete(stmts)
 		defer mem.dynamic_arena_destroy(&arena)
 
 		// error_str := parser_error_to_string(parser_err.?, alloc = context.allocator)
@@ -961,13 +961,13 @@ Test :: struct {
 }
 
 @(private = "file")
-log_ast :: proc(source: string, exprs: []^syntax.Expr) {
-	for expr, i in exprs {
+log_ast :: proc(source: string, stmts: []^syntax.Stmt) {
+	for stmt, i in stmts {
 		builder := strings.builder_make()
 		defer strings.builder_destroy(&builder)
 
-		log.infof("Printing AST for expr %d", i + 1)
-		ast.build_ast_from_expr(&builder, source, exprs[0])
+		log.infof("Printing AST for stmt %d", i + 1)
+		ast.build_ast_from_stmt(&builder, source, stmt)
 		log.info(strings.to_string(builder))
 	}
 }

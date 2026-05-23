@@ -37,7 +37,7 @@ init :: proc(parser: ^Parser, tokens: []syntax.Token, allocator := context.alloc
 	parser.allocator = allocator
 }
 
-parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
+parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 	if len(parser.tokens) == 0 {
 		return nil, Parser_Error{kind = .Empty_Tokens, message = "No tokens found"}
 	}
@@ -49,19 +49,64 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
 		}
 	}
 
-	// worst case: assume one expression per token
-	exprs := make([dynamic]^syntax.Expr, 0, len(parser.tokens), allocator = parser.allocator)
+	// worst case: assume one statement per token
+	stmts := make([dynamic]^syntax.Stmt, 0, len(parser.tokens), allocator = parser.allocator)
 
 	for !is_at_end(parser) {
 		skip_newlines(parser)
-		expr, parser_err := parse_expr(parser)
-		if parser_err != nil do return exprs, parser_err
+		if is_at_end(parser) do break
 
-		append(&exprs, expr)
+		stmt, parser_err := parse_stmt(parser)
+		if parser_err != nil do return stmts, parser_err
+
+		append(&stmts, stmt)
 		skip_newlines(parser)
 	}
 
-	return exprs, nil
+	return stmts, nil
+}
+
+parse_stmt :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+	#partial switch parser.tokens[parser.current].kind {
+	case .Ident:
+		next, ok := peek_next(parser)
+		if ok && (next.kind == .Colon_Equal || next.kind == .Colon_Colon) {
+			return parse_ident_decl(parser)
+		}
+
+	case:
+		// TODO: statements that depend on the next token like assignments.
+
+		// Expression statements
+		expr, err := parse_expr(parser)
+		if err != nil do return nil, err
+
+		stmt := new(syntax.Stmt, allocator = parser.allocator)
+		stmt^ = syntax.Expr_Stmt{expr = expr}
+		return stmt, nil
+	}
+
+	unreachable()
+}
+
+parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+	name := parser.tokens[parser.current]
+	advance(parser)
+
+	op := parser.tokens[parser.current]
+	advance(parser)
+
+	value, err := parse_expr(parser)
+	if err != nil do return nil, err
+
+	stmt := new(syntax.Stmt, allocator = parser.allocator)
+	stmt^ = syntax.Ident_Decl_Stmt {
+		name    = name,
+		value   = value,
+		mutable = op.kind == .Colon_Equal,
+	}
+	
+	return stmt, nil
 }
 
 parse_expr :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
@@ -215,6 +260,12 @@ parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 			expr = syntax.Literal_Expr{token = current_token},
 		}
 		expr^ = result
+		advance(parser)
+
+	case .Ident:
+		expr^ = syntax.Expr {
+			expr = syntax.Ident_Expr{token = current_token},
+		}
 		advance(parser)
 
 	case .Left_Paren:

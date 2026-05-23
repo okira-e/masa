@@ -10,9 +10,42 @@ Value :: union {
 	bool,
 }
 
-interpret :: proc(source: string, exprs: []^syntax.Expr) -> Maybe(Eval_Error) {
-	for expr in exprs {
-		val, err := eval(source, expr)
+Interpreter :: struct {
+	source: string,
+	env:    map[string]Value,
+}
+
+// The env map uses the default heap allocator — Odin maps require cache-line
+// alignment that the dynamic arena doesn't satisfy. Call destroy to free it.
+init :: proc(interp: ^Interpreter, source: string) {
+	interp.source = source
+	interp.env = make(map[string]Value)
+}
+
+destroy :: proc(interp: ^Interpreter) {
+	delete(interp.env)
+}
+
+interpret :: proc(interp: ^Interpreter, stmts: []^syntax.Stmt) -> Maybe(Eval_Error) {
+	for stmt in stmts {
+		err := eval_stmt(interp, stmt)
+		if err != nil do return err
+	}
+
+	return nil
+}
+
+eval_stmt :: proc(interp: ^Interpreter, stmt: ^syntax.Stmt) -> Maybe(Eval_Error) {
+	switch stmt in stmt {
+	case syntax.Ident_Decl_Stmt:
+		val, err := eval(interp, stmt.value)
+		if err != nil do return err
+
+		name := interp.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
+		interp.env[name] = val
+
+	case syntax.Expr_Stmt:
+		val, err := eval(interp, stmt.expr)
 		if err != nil do return err
 
 		fmt.println("VAL:", val)
@@ -21,29 +54,32 @@ interpret :: proc(source: string, exprs: []^syntax.Expr) -> Maybe(Eval_Error) {
 	return nil
 }
 
-eval :: proc(source: string, expr: ^syntax.Expr) -> (Value, Maybe(Eval_Error)) {
+eval :: proc(interp: ^Interpreter, expr: ^syntax.Expr) -> (Value, Maybe(Eval_Error)) {
 	switch &v in expr.expr {
 	case syntax.Literal_Expr:
-		return eval_literal(source, &v)
+		return eval_literal(interp, &v)
 
 	case syntax.Unary_Expr:
-		return eval_unary(source, &v)
+		return eval_unary(interp, &v)
 
 	case syntax.Binary_Expr:
-		return eval_binary(source, &v)
+		return eval_binary(interp, &v)
 
 	case syntax.Grouping_Expr:
-		return eval(source, v.expr)
+		return eval(interp, v.expr)
+
+	case syntax.Ident_Expr:
+		return eval_ident(interp, &v)
 	}
 
 	unreachable()
 }
 
-eval_literal :: proc(source: string, literal: ^syntax.Literal_Expr) -> (Value, Maybe(Eval_Error)) {
+eval_literal :: proc(interp: ^Interpreter, literal: ^syntax.Literal_Expr) -> (Value, Maybe(Eval_Error)) {
 	kind, has_kind := literal.token.literal_kind.?
 	assert(has_kind)
 
-	lexeme := source[literal.token.lexeme_start:literal.token.lexeme_end]
+	lexeme := interp.source[literal.token.lexeme_start:literal.token.lexeme_end]
 	switch kind {
 	case .Number:
 		n, ok := strconv.parse_f64(lexeme)
@@ -64,8 +100,8 @@ eval_literal :: proc(source: string, literal: ^syntax.Literal_Expr) -> (Value, M
 	unreachable()
 }
 
-eval_unary :: proc(source: string, unary: ^syntax.Unary_Expr) -> (Value, Maybe(Eval_Error)) {
-	right, err := eval(source, unary.right)
+eval_unary :: proc(interp: ^Interpreter, unary: ^syntax.Unary_Expr) -> (Value, Maybe(Eval_Error)) {
+	right, err := eval(interp, unary.right)
 	if err != nil do return nil, err
 
 	#partial switch unary.op {
@@ -86,11 +122,11 @@ eval_unary :: proc(source: string, unary: ^syntax.Unary_Expr) -> (Value, Maybe(E
 	unreachable()
 }
 
-eval_binary :: proc(source: string, binary: ^syntax.Binary_Expr) -> (Value, Maybe(Eval_Error)) {
-	left, lerr := eval(source, binary.left)
+eval_binary :: proc(interp: ^Interpreter, binary: ^syntax.Binary_Expr) -> (Value, Maybe(Eval_Error)) {
+	left, lerr := eval(interp, binary.left)
 	if lerr != nil do return nil, lerr
 
-	right, rerr := eval(source, binary.right)
+	right, rerr := eval(interp, binary.right)
 	if rerr != nil do return nil, rerr
 
 	#partial switch binary.op {
@@ -116,9 +152,7 @@ eval_binary :: proc(source: string, binary: ^syntax.Binary_Expr) -> (Value, Mayb
 		return ln * rn, nil
 
 	case .Slash:
-		if rn == 0 {
-			return nil, .Division_By_Zero
-		}
+		if rn == 0 do return nil, .Division_By_Zero
 
 		return ln / rn, nil
 
@@ -136,6 +170,14 @@ eval_binary :: proc(source: string, binary: ^syntax.Binary_Expr) -> (Value, Mayb
 	}
 
 	unreachable()
+}
+
+eval_ident :: proc(interp: ^Interpreter, ident: ^syntax.Ident_Expr) -> (Value, Maybe(Eval_Error)) {
+	name := interp.source[ident.token.lexeme_start:ident.token.lexeme_end]
+	val, ok := interp.env[name]
+	if !ok do return nil, .Undefined_Variable
+
+	return val, nil
 }
 
 values_equal :: proc(a, b: Value) -> bool {
@@ -167,4 +209,5 @@ Eval_Error :: enum {
 	Invalid_Literal,
 	Type_Error,
 	Division_By_Zero,
+	Undefined_Variable,
 }

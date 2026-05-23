@@ -5,6 +5,7 @@ Expr_Kind :: union {
 	Unary_Expr,
 	Binary_Expr,
 	Grouping_Expr,
+	Ident_Expr,
 }
 
 Expr :: struct {
@@ -28,6 +29,10 @@ Binary_Expr :: struct {
 
 Grouping_Expr :: struct {
 	expr: ^Expr,
+}
+
+Ident_Expr :: struct {
+	token: Token,
 }
 
 expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
@@ -80,6 +85,14 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 			casted_b := b.expr.(Grouping_Expr)
 
 			return expr_eq(casted_a.expr, casted_b.expr)
+		}
+	case Ident_Expr:
+		{
+			if _, ok := b.expr.(Ident_Expr); !ok {
+				return false
+			}
+
+			return a.expr.(Ident_Expr).token == b.expr.(Ident_Expr).token
 		}
 	}
 

@@ -63,30 +63,33 @@ main :: proc() {
 
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
-	exprs, parser_err := parser.parse(&p)
-	defer delete(exprs)
+	stmts, parser_err := parser.parse(&p)
+	defer delete(stmts)
 	if parser_err != nil {
 		fmt.fprintf(os.stderr, "Error while parsing: %v\n", parser_err)
 		os.exit(1)
 	}
 	if app_flags.print_ast {
-		print_ast(exprs[:], transmute(string)source)
+		print_ast(stmts[:], transmute(string)source)
 	}
 
 	// Interpretation
 
-	eval_err := interpreter.interpret(transmute(string)source, exprs[:])
+	interp: interpreter.Interpreter
+	interpreter.init(&interp, transmute(string)source)
+	defer interpreter.destroy(&interp)
+	eval_err := interpreter.interpret(&interp, stmts[:])
 	if eval_err != nil {
-		fmt.fprintf(os.stderr, "Error while running: %v\n", parser_err)
+		fmt.fprintf(os.stderr, "Error while running: %v\n", eval_err)
 		os.exit(1)
 	}
 }
 
 @(private = "file")
-print_ast :: proc(exprs: []^syntax.Expr, source: string) {
+print_ast :: proc(stmts: []^syntax.Stmt, source: string) {
 	builder := strings.builder_make()
-	for expr in exprs {
-		ast.build_ast_from_expr(&builder, source, expr)
+	for stmt in stmts {
+		ast.build_ast_from_stmt(&builder, source, stmt)
 	}
 	out := strings.to_string(builder)
 	defer delete(out)

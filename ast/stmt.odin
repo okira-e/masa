@@ -4,10 +4,18 @@ import "../syntax"
 import "core:strings"
 
 build_ast_from_stmt :: proc(builder: ^strings.Builder, source: string, stmt: ^syntax.Stmt) {
-	#partial switch st in stmt {
+	switch st in stmt {
 	case syntax.Expr_Stmt:
-		{
 			build_ast_from_expr(builder, source, st.expr)
-		}
+
+	case syntax.Ident_Decl_Stmt:
+			strings.write_byte(builder, '(')
+			strings.write_string(builder, st.mutable ? ":=" : "::")
+			strings.write_byte(builder, ' ')
+			name := source[st.name.lexeme_start:st.name.lexeme_end]
+			strings.write_string(builder, name)
+			strings.write_byte(builder, ' ')
+			build_ast_from_expr(builder, source, st.value)
+			strings.write_byte(builder, ')')
 	}
 }

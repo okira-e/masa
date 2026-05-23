@@ -46,6 +46,15 @@ build_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^sy
 			// or do anything.
 			build_ast_from_expr(builder, source, expr.expr)
 		}
+	case syntax.Ident_Expr:
+		{
+			lexeme := get_lexeme_from_source(
+				source,
+				expr.token.lexeme_start,
+				expr.token.lexeme_end,
+			)
+			strings.write_string(builder, lexeme)
+		}
 	}
 }
 

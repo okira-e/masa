@@ -2,6 +2,7 @@ package interpreter
 
 import "../lexer"
 import "../parser"
+import "../syntax"
 import "core:mem"
 import "core:testing"
 
@@ -104,6 +105,44 @@ test_type_error :: proc(t: ^testing.T) {
 	testing.expectf(t, e == .Type_Error, "got %v", e)
 }
 
+@(test)
+test_variables :: proc(t: ^testing.T) {
+	cases := []struct {
+		source:   string,
+		expected: f64,
+	} {
+		{"x := 5\nx", 5},
+		{"x := 5\nx + 1", 6},
+		{"pi :: 3\npi * 2", 6},
+		{"a := 1\nb := 2\na + b", 3},
+	}
+
+	for c in cases {
+		val, err := run(c.source)
+		testing.expectf(t, err == nil, "%s: unexpected error %v", c.source, err)
+		n, ok := val.(f64)
+		testing.expectf(t, ok, "%s: not a number, got %v", c.source, val)
+		testing.expectf(t, n == c.expected, "%s: got %v, expected %v", c.source, n, c.expected)
+	}
+}
+
+@(test)
+test_redeclaration :: proc(t: ^testing.T) {
+	val, err := run("x := 5\nx := 6\nx")
+	testing.expect(t, err == nil)
+	n, ok := val.(f64)
+	testing.expect(t, ok)
+	testing.expectf(t, n == 6, "got %v", n)
+}
+
+@(test)
+test_undefined_variable :: proc(t: ^testing.T) {
+	_, err := run("x")
+	e, ok := err.?
+	testing.expect(t, ok)
+	testing.expectf(t, e == .Undefined_Variable, "got %v", e)
+}
+
 @(private)
 run :: proc(source: string) -> (Value, Maybe(Eval_Error)) {
 	arena: mem.Dynamic_Arena
@@ -118,8 +157,27 @@ run :: proc(source: string) -> (Value, Maybe(Eval_Error)) {
 
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
-	exprs, _ := parser.parse(&p)
-	defer delete(exprs)
+	stmts, _ := parser.parse(&p)
+	defer delete(stmts)
 
-	return eval(source, exprs[0])
+	interp: Interpreter
+	init(&interp, source)
+	defer destroy(&interp)
+
+	last_val: Value
+	for stmt in stmts {
+		switch s in stmt {
+		case syntax.Expr_Stmt:
+			val, err := eval(&interp, s.expr)
+			if err != nil do return nil, err
+			last_val = val
+		case syntax.Ident_Decl_Stmt:
+			val, err := eval(&interp, s.value)
+			if err != nil do return nil, err
+			name := source[s.name.lexeme_start:s.name.lexeme_end]
+			interp.env[name] = val
+		}
+	}
+
+	return last_val, nil
 }
