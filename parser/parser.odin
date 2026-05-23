@@ -55,9 +55,7 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
 	for !is_at_end(parser) {
 		skip_newlines(parser)
 		expr, parser_err := parse_expr(parser)
-		if parser_err != nil {
-			return exprs, parser_err
-		}
+		if parser_err != nil do return exprs, parser_err
 
 		append(&exprs, expr)
 		skip_newlines(parser)
@@ -68,18 +66,14 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
 
 parse_expr :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr, err := parse_equality(parser)
-	if err != nil {
-		return expr, err
-	}
+	if err != nil do return expr, err
 
 	return expr, nil
 }
 
 parse_equality :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr, err := parse_comparison(parser)
-	if err != nil {
-		return expr, err
-	}
+	if err != nil do return expr, err
 
 	for {
 		current_token, is_eof := get_current_token(parser)
@@ -90,9 +84,7 @@ parse_equality :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		advance(parser)
 
 		right, err := parse_comparison(parser)
-		if err != nil {
-			return expr, err
-		}
+		if err != nil do return expr, err
 
 		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
@@ -106,9 +98,7 @@ parse_equality :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 parse_comparison :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr, err := parse_term(parser)
-	if err != nil {
-		return expr, err
-	}
+	if err != nil do return expr, err
 
 	for {
 		current_token, is_eof := get_current_token(parser)
@@ -119,9 +109,7 @@ parse_comparison :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error))
 		advance(parser)
 
 		right, err := parse_term(parser)
-		if err != nil {
-			return expr, err
-		}
+		if err != nil do return expr, err
 
 		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
@@ -135,9 +123,7 @@ parse_comparison :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error))
 
 parse_term :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr, err := parse_factor(parser)
-	if err != nil {
-		return expr, err
-	}
+	if err != nil do return expr, err
 
 	for {
 		current_token, is_eof := get_current_token(parser)
@@ -148,9 +134,7 @@ parse_term :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		advance(parser)
 
 		right, err := parse_factor(parser)
-		if err != nil {
-			return expr, err
-		}
+		if err != nil do return expr, err
 
 		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
@@ -164,9 +148,7 @@ parse_term :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 parse_factor :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr, err := parse_unary(parser)
-	if err != nil {
-		return expr, err
-	}
+	if err != nil do return expr, err
 
 	for {
 		current_token, is_eof := get_current_token(parser)
@@ -177,9 +159,7 @@ parse_factor :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		advance(parser)
 
 		right, err := parse_unary(parser)
-		if err != nil {
-			return expr, err
-		}
+		if err != nil do return expr, err
 
 		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
@@ -205,9 +185,7 @@ parse_unary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		advance(parser)
 
 		right, err := parse_unary(parser)
-		if err != nil {
-			return nil, err
-		}
+		if err != nil do return nil, err
 
 		result := new(syntax.Expr, allocator = parser.allocator)
 		result^ = syntax.Expr {
@@ -242,9 +220,7 @@ parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	case .Left_Paren:
 		advance(parser)
 		expr_inner, err := parse_expr(parser)
-		if err != nil {
-			return expr, err
-		}
+		if err != nil do return expr, err
 
 		current_token, is_eof := get_current_token(parser)
 		if is_eof || current_token.kind != .Right_Paren {

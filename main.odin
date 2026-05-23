@@ -9,6 +9,7 @@ import "core:strings"
 import "lexer"
 import "parser"
 import "syntax"
+import "interpreter"
 
 App_Flags :: struct {
 	print_ast: bool `args:"name=print-ast"`,
@@ -46,6 +47,8 @@ main :: proc() {
 	l := lexer.Lexer{}
 	lexer.init(&l, arena_alloc)
 
+	// Lexing
+
 	tokens, lexing_err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
 	if lexing_err != nil {
@@ -56,6 +59,8 @@ main :: proc() {
 		fmt.println("TOKENS:", tokens)
 	}
 
+	// Parsing
+
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
 	exprs, parser_err := parser.parse(&p)
@@ -64,9 +69,16 @@ main :: proc() {
 		fmt.fprintf(os.stderr, "Error while parsing: %v\n", parser_err)
 		os.exit(1)
 	}
-
 	if app_flags.print_ast {
 		print_ast(exprs[:], transmute(string)source)
+	}
+
+	// Interpretation
+
+	eval_err := interpreter.interpret(transmute(string)source, exprs[:])
+	if eval_err != nil {
+		fmt.fprintf(os.stderr, "Error while running: %v\n", parser_err)
+		os.exit(1)
 	}
 }
 
