@@ -12,6 +12,7 @@ import "syntax"
 
 App_Flags :: struct {
 	print_ast: bool `args:"name=print-ast"`,
+	emit_tokens: bool `args:"name=emit-tokens"`,
 }
 
 main :: proc() {
@@ -48,15 +49,21 @@ main :: proc() {
 	tokens, lexing_err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
 	if lexing_err != nil {
-		fmt.fprintf(os.stderr, "Error while scanning: %s\n", lexing_err)
+		fmt.fprintf(os.stderr, "Error while scanning: %v\n", lexing_err)
 		os.exit(1)
 	}
-	_ = tokens
+	if app_flags.emit_tokens {
+		fmt.println("TOKENS:", tokens)
+	}
 
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
-	exprs, _ := parser.parse(&p)
+	exprs, parser_err := parser.parse(&p)
 	defer delete(exprs)
+	if parser_err != nil {
+		fmt.fprintf(os.stderr, "Error while parsing: %v\n", parser_err)
+		os.exit(1)
+	}
 
 	if app_flags.print_ast {
 		print_ast(exprs[:], transmute(string)source)

@@ -53,12 +53,14 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
 	exprs := make([dynamic]^syntax.Expr, 0, len(parser.tokens), allocator = parser.allocator)
 
 	for !is_at_end(parser) {
+		skip_newlines(parser)
 		expr, parser_err := parse_expr(parser)
 		if parser_err != nil {
 			return exprs, parser_err
 		}
 
 		append(&exprs, expr)
+		skip_newlines(parser)
 	}
 
 	return exprs, nil
@@ -231,51 +233,47 @@ parse_primary :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 	#partial switch current_token.kind {
 	case .Literal:
-		{
-			result := syntax.Expr {
-				expr = syntax.Literal_Expr{token = current_token},
-			}
-			expr^ = result
-			advance(parser)
+		result := syntax.Expr {
+			expr = syntax.Literal_Expr{token = current_token},
 		}
+		expr^ = result
+		advance(parser)
+
 	case .Left_Paren:
-		{
-			advance(parser)
-			expr_inner, err := parse_expr(parser)
-			if err != nil {
-				return expr, err
-			}
-
-			current_token, is_eof := get_current_token(parser)
-			if is_eof || current_token.kind != .Right_Paren {
-				return expr, Parser_Error {
-					kind = .UnclosedParen,
-					message = "Expected a \")\" token",
-					token = current_token,
-				}
-			}
-
-			advance(parser)
-
-			expr^ = syntax.Expr {
-				expr = syntax.Grouping_Expr{expr = expr_inner},
-			}
+		advance(parser)
+		expr_inner, err := parse_expr(parser)
+		if err != nil {
+			return expr, err
 		}
-	case:
-		{
+
+		current_token, is_eof := get_current_token(parser)
+		if is_eof || current_token.kind != .Right_Paren {
 			return expr, Parser_Error {
-				kind = .Unexpected_Token,
-				message = "Unexpected token while parsing primary",
+				kind = .UnclosedParen,
+				message = "Expected a \")\" token",
 				token = current_token,
 			}
 		}
+
+		advance(parser)
+
+		expr^ = syntax.Expr {
+			expr = syntax.Grouping_Expr{expr = expr_inner},
+		}
+
+	case:
+		return expr, Parser_Error {
+			kind = .Unexpected_Token,
+			message = "Unexpected token while parsing primary",
+			token = current_token,
+		}
+
 	}
 
 	return expr, nil
 }
 
 // Advances and returns: previous token, success
-@(private)
 advance :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	prev := parser.tokens[parser.current]
 	if prev.kind != .EOF {
@@ -286,18 +284,18 @@ advance :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	}
 }
 
-@(private)
-peek :: proc(parser: ^Parser) -> ^syntax.Token {
-	assert(parser.current < len(parser.tokens))
-	return &parser.tokens[parser.current + 1]
+peek_next :: proc(parser: ^Parser) -> (syntax.Token, bool) {
+	if parser.current >= len(parser.tokens) - 1 {
+		return syntax.Token{}, false
+	}
+
+	return parser.tokens[parser.current + 1], true
 }
 
-@(private)
 is_at_end :: proc(parser: ^Parser) -> bool {
 	return parser.current < len(parser.tokens) && parser.tokens[parser.current].kind == .EOF
 }
 
-@(private)
 matches :: proc(lhs: syntax.Token_Kind, rhs: ..syntax.Token_Kind) -> bool {
 	for r in rhs {
 		if r == lhs {
@@ -309,7 +307,6 @@ matches :: proc(lhs: syntax.Token_Kind, rhs: ..syntax.Token_Kind) -> bool {
 }
 
 // Returns the current token with a flag for if the token is the EOF one.
-@(private)
 get_current_token :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	token := parser.tokens[parser.current]
 	if token.kind == .EOF {
@@ -317,6 +314,12 @@ get_current_token :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	}
 
 	return token, false
+}
+
+skip_newlines :: proc(parser: ^Parser) {
+	for parser.tokens[parser.current].kind == .New_Line {
+		advance(parser)
+	}
 }
 
 Parser_Error :: struct {
@@ -369,4 +372,3 @@ parser_error_to_string :: proc(err: Parser_Error, allocator := context.allocator
 
 	return fmt.aprintf("", allocator = allocator)
 }
-

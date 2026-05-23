@@ -1,16 +1,18 @@
+package main
+
 Vector :: struct {
-	x: number,
-	y: number,
+	x: usize,
+	y: usize,
 }
 
-new_vector :: fn(x: number, y: number) -> Vector {
+new_vector :: proc(x: usize, y: usize): Vector {
 	return Vector {
 		x: x,
 		y: y,
 	}
 }
 
-dimensions :: fn(foo: Vector) -> number, number {
+dimensions :: proc(foo: Vector): usize, usize {
 	return foo.x, foo.y
 }
 
@@ -19,13 +21,13 @@ v = new_vector(3, 5)
 
 x, y := dimensions(v)
 
-foo :: fn() -> number {
+foo :: proc(): usize {
 	internal := 5
 	
 	return internal
 }
 
-main :: fn() { // `-> void` is optional
+main :: proc() {
 	message: str = f"Hello {foo()} times!"
 	
 	println(message)
