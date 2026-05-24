@@ -294,17 +294,27 @@ scan :: proc(lexer: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lex
 						}
 					}
 
-					// Decide if it's a reserved keyword or an identifier name
+					// Decide if it's a reserved keyword or an identifier name or special literal
 
 					token_kind: syntax.Token_Kind = .Ident
 
 					lexeme := string(source[lexer.last_lexeme_start:lexer.current + 1])
+
 					keyword := syntax.keyword_from_string(lexeme)
 					if keyword != nil {
 						token_kind = .Keyword
 					}
+					
+					literal_kind: Maybe(syntax.Literal_Kind) = nil
+					if lexeme == "false" {
+						token_kind = .Literal
+						literal_kind = .Bool
+					} else if lexeme == "true" {
+						token_kind = .Literal
+						literal_kind = .Bool
+					}
 
-					new_token := make_token(lexer, lexer.current, token_kind, nil, keyword)
+					new_token := make_token(lexer, lexer.current, token_kind, literal_kind, keyword)
 					append(&tokens, new_token)
 					lexer.column += skips
 				}

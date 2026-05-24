@@ -6,6 +6,7 @@ Expr_Kind :: union {
 	Binary_Expr,
 	Grouping_Expr,
 	Ident_Expr,
+	Logical_Expr,
 }
 
 Expr :: struct {
@@ -33,6 +34,12 @@ Grouping_Expr :: struct {
 
 Ident_Expr :: struct {
 	token: Token,
+}
+
+Logical_Expr :: struct {
+	left:  ^Expr,
+	op:    Keyword, // .And or .Or
+	right: ^Expr,
 }
 
 expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
@@ -93,6 +100,21 @@ expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {
 			}
 
 			return a.expr.(Ident_Expr).token == b.expr.(Ident_Expr).token
+		}
+	case Logical_Expr:
+		{
+			if _, ok := b.expr.(Logical_Expr); !ok {
+				return false
+			}
+
+			casted_a := a.expr.(Logical_Expr)
+			casted_b := b.expr.(Logical_Expr)
+
+			return(
+				expr_eq(casted_a.left, casted_b.left) &&
+				casted_a.op == casted_b.op &&
+				expr_eq(casted_a.right, casted_b.right) \
+			)
 		}
 	}
 

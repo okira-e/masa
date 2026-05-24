@@ -510,7 +510,7 @@ test_lexer_declaration_and_assignment :: proc(t: ^testing.T) {
 		},
 		{
 			name = "variable comptime declarative assignment",
-			input = "main :: fn",
+			input = "main :: if",
 			expected = []syntax.Token_Kind{.Ident, .Colon_Colon, .Keyword, .EOF},
 		},
 		{
@@ -1187,29 +1187,10 @@ test_lexer_identifier_lexemes :: proc(t: ^testing.T) {
 test_lexer_keywords :: proc(t: ^testing.T) {
 	tests := []Test {
 		{
-			name = "fn keyword",
-			input = "fn",
+			name = "if keyword",
+			input = "if",
 			expected = []syntax.Token_Kind{.Keyword, .EOF},
-			keyword_kind = .Fn,
-		},
-		{
-			name = "fn keyword followed by identifier",
-			input = "fn name",
-			expected = []syntax.Token_Kind{.Keyword, .Ident, .EOF},
-			keyword_kind = .Fn,
-		},
-		{
-			name = "fn keyword in assignment",
-			input = "x = fn()",
-			expected = []syntax.Token_Kind {
-				.Ident,
-				.Equal,
-				.Keyword,
-				.Left_Paren,
-				.Right_Paren,
-				.EOF,
-			},
-			keyword_kind = .Fn,
+			keyword_kind = .If,
 		},
 	}
 
@@ -1312,7 +1293,7 @@ test_lexer_identifier_no_literal_kind :: proc(t: ^testing.T) {
 
 @(test)
 test_lexer_keyword_no_literal_kind :: proc(t: ^testing.T) {
-	input := "fn"
+	input := "if"
 
 	lexer := Lexer{}
 	init(&lexer)
@@ -1348,9 +1329,9 @@ test_lexer_keyword_no_literal_kind :: proc(t: ^testing.T) {
 		testing.fail_now(t)
 	}
 
-	if tok.keyword != .Fn {
+	if tok.keyword != .If {
 		print_tokens(input, tokens)
-		testing.expectf(t, false, "expected keyword to be Fn, got %v", tok.keyword)
+		testing.expectf(t, false, "expected keyword to be If, got %v", tok.keyword)
 		testing.fail_now(t)
 	}
 }

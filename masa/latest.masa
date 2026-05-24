@@ -1,5 +1,12 @@
 x := 4 + 1
+
 pi :: 3
 
-x * pi == 15
+if x * pi == 15 and false {
+	true
+} else if true {
+	5
+} else {
+	false
+}
 

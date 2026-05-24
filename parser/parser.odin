@@ -1,5 +1,6 @@
 package parser
 
+import "core:os"
 import "../syntax"
 import "core:fmt"
 import "core:mem"
@@ -17,7 +18,9 @@ Parser development guide/rules:
 /*
 Grammar in BNF notation:
 
-- expression 	-> equality ;
+- expression 	-> logic_or ;
+- logic_or 		-> logic_and ( "or" logic_and )* ;
+- logic_and 	-> equality ( "and" equality )* ;
 - equality 		-> comparison ( ( "!=" | "==" ) comparison )* ;
 - comparison 	-> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
 - term 			-> factor ( ( "-" | "+" ) factor )* ;
@@ -54,7 +57,9 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 
 	for !is_at_end(parser) {
 		skip_newlines(parser)
-		if is_at_end(parser) do break
+		if is_at_end(parser) {
+			break
+		}
 
 		stmt, parser_err := parse_stmt(parser)
 		if parser_err != nil do return stmts, parser_err
@@ -67,26 +72,89 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 }
 
 parse_stmt :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
-	#partial switch parser.tokens[parser.current].kind {
+	current := parser.tokens[parser.current]
+	#partial switch current.kind {
 	case .Ident:
 		next, ok := peek_next(parser)
 		if ok && (next.kind == .Colon_Equal || next.kind == .Colon_Colon) {
 			return parse_ident_decl(parser)
 		}
 
-	case:
-		// TODO: statements that depend on the next token like assignments.
-
-		// Expression statements
-		expr, err := parse_expr(parser)
-		if err != nil do return nil, err
-
-		stmt := new(syntax.Stmt, allocator = parser.allocator)
-		stmt^ = syntax.Expr_Stmt{expr = expr}
-		return stmt, nil
+	case .Keyword:
+		return parse_keyword(parser, current)
 	}
 
-	unreachable()
+	// TODO: statements that depend on the next token like assignments.
+
+	// Expression statements
+	expr, err := parse_expr(parser)
+	if err != nil do return nil, err
+
+	stmt := new(syntax.Stmt, allocator = parser.allocator)
+	stmt^ = syntax.Expr_Stmt{expr = expr}
+	return stmt, nil
+}
+
+parse_keyword :: proc(parser: ^Parser, token: syntax.Token) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+	keyword, ok := token.keyword.?
+	assert(ok)
+
+	#partial switch keyword {
+	case .If:
+		return parse_if(parser)
+
+	case .Else:
+		return nil, Parser_Error {
+			kind = .Else_With_No_If,
+			message = "'else' without a matching 'if'",
+			token = token,
+		}
+	}
+
+	return nil, Parser_Error {
+		kind = .Unexpected_Token,
+		message = "keyword cannot start a statement",
+		token = token,
+	}
+}
+
+parse_if :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+	advance(parser) // consume `if`
+
+	condition, cond_err := parse_expr(parser)
+	if cond_err != nil do return nil, cond_err
+
+	skip_newlines(parser)
+
+	then_block, then_err := parse_block(parser)
+	if then_err != nil do return nil, then_err
+
+	else_branch: Maybe(^syntax.Stmt)
+	tok := parser.tokens[parser.current]
+	if tok.kind == .Keyword && tok.keyword == .Else {
+		advance(parser) // consume `else`
+		skip_newlines(parser)
+
+		next := parser.tokens[parser.current]
+		if next.kind == .Keyword && next.keyword == .If {
+			else_stmt, err := parse_if(parser)
+			if err != nil do return nil, err
+			else_branch = else_stmt
+		} else {
+			else_stmt, err := parse_block(parser)
+			if err != nil do return nil, err
+			else_branch = else_stmt
+		}
+	}
+
+	stmt := new(syntax.Stmt, allocator = parser.allocator)
+	stmt^ = syntax.If_Stmt {
+		condition   = condition,
+		then_block  = then_block,
+		else_branch = else_branch,
+	}
+
+	return stmt, nil
 }
 
 parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
@@ -105,13 +173,102 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 		value   = value,
 		mutable = op.kind == .Colon_Equal,
 	}
-	
+
+	return stmt, nil
+}
+
+parse_block :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+	open := parser.tokens[parser.current]
+	if open.kind != .Left_Brace {
+		return nil, Parser_Error {
+			kind = .Unexpected_Token,
+			message = "expected '{' to start block",
+			token = open,
+		}
+	}
+	advance(parser)
+
+	inner := make([dynamic]^syntax.Stmt, 0, 8, allocator = parser.allocator)
+
+	for {
+		skip_newlines(parser)
+
+		tok := parser.tokens[parser.current]
+		if tok.kind == .Right_Brace {
+			advance(parser)
+			break
+		}
+		if tok.kind == .EOF {
+			return nil, Parser_Error {
+				kind = .Unexpected_EOF,
+				message = "unexpected EOF while parsing block — missing '}'",
+				token = tok,
+			}
+		}
+
+		s, err := parse_stmt(parser)
+		if err != nil do return nil, err
+		append(&inner, s)
+	}
+
+	stmt := new(syntax.Stmt, allocator = parser.allocator)
+	stmt^ = syntax.Block_Stmt{stmts = inner[:]}
 	return stmt, nil
 }
 
 parse_expr :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_logic_or(parser)
+	if err != nil do return expr, err
+
+	return expr, nil
+}
+
+parse_logic_or :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	expr, err := parse_logic_and(parser)
+	if err != nil do return expr, err
+
+	for {
+		tok, is_eof := get_current_token(parser)
+		if is_eof || tok.kind != .Keyword || tok.keyword != .Or {
+			break
+		}
+
+		advance(parser)
+
+		right, rerr := parse_logic_and(parser)
+		if rerr != nil do return expr, rerr
+
+		result := new(syntax.Expr, allocator = parser.allocator)
+		result^ = syntax.Expr {
+			expr = syntax.Logical_Expr{left = expr, op = .Or, right = right},
+		}
+		expr = result
+	}
+
+	return expr, nil
+}
+
+parse_logic_and :: proc(parser: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr, err := parse_equality(parser)
 	if err != nil do return expr, err
+
+	for {
+		tok, is_eof := get_current_token(parser)
+		if is_eof || tok.kind != .Keyword || tok.keyword != .And {
+			break
+		}
+
+		advance(parser)
+
+		right, rerr := parse_equality(parser)
+		if rerr != nil do return expr, rerr
+
+		result := new(syntax.Expr, allocator = parser.allocator)
+		result^ = syntax.Expr {
+			expr = syntax.Logical_Expr{left = expr, op = .And, right = right},
+		}
+		expr = result
+	}
 
 	return expr, nil
 }
@@ -361,6 +518,7 @@ Parser_Error_Kind :: enum {
 	Missing_EOF,
 	UnclosedParen,
 	Unexpected_Token,
+	Else_With_No_If,
 }
 
 parser_error_to_string :: proc(err: Parser_Error, allocator := context.allocator) -> string {
@@ -390,6 +548,15 @@ parser_error_to_string :: proc(err: Parser_Error, allocator := context.allocator
 	case .Unexpected_Token:
 		return fmt.aprintf(
 			"Unexpected token of kind %s at line %d, column %d",
+			err.token.kind,
+			err.token.line,
+			err.token.column,
+			allocator = allocator,
+		)
+
+	case .Else_With_No_If:
+		return fmt.aprintf(
+			"Found an else with no if",
 			err.token.kind,
 			err.token.line,
 			err.token.column,

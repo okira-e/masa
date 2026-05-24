@@ -1,13 +1,10 @@
 package syntax
 
 Keyword :: enum u8 {
-	Fn,
-	Void,
-	Return,
-	Number,
-	Str,
-	Nil,
-	Any,
+	If,
+	Else,
+	And,
+	Or,
 }
 
 Keyword_Entry :: struct {
@@ -16,13 +13,10 @@ Keyword_Entry :: struct {
 }
 
 keywords := []Keyword_Entry {
-	{"fn", .Fn},
-	{"void", .Void},
-	{"return", .Return},
-	{"number", .Number},
-	{"str", .Str},
-	{"nil", .Nil},
-	{"any", .Any},
+	{"if", .If},
+	{"else", .Else},
+	{"and", .And},
+	{"or", .Or},
 }
 
 keyword_from_string :: proc(s: string) -> Maybe(Keyword) {

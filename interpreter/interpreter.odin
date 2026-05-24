@@ -42,6 +42,10 @@ eval_stmt :: proc(interp: ^Interpreter, stmt: ^syntax.Stmt) -> Maybe(Eval_Error)
 		if err != nil do return err
 
 		name := interp.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
+		if _, ok := interp.env[name]; ok {
+			return .Variable_Redeclaration
+		}
+
 		interp.env[name] = val
 
 	case syntax.Expr_Stmt:
@@ -49,6 +53,26 @@ eval_stmt :: proc(interp: ^Interpreter, stmt: ^syntax.Stmt) -> Maybe(Eval_Error)
 		if err != nil do return err
 
 		fmt.println("VAL:", val)
+
+	case syntax.If_Stmt:
+		cond_val, err := eval(interp, stmt.condition)
+		if err != nil do return err
+
+		cond_bool, ok := cond_val.(bool)
+		if !ok do return .Type_Error
+
+		if cond_bool {
+			return eval_stmt(interp, stmt.then_block)
+		}
+		if else_stmt, has_else := stmt.else_branch.?; has_else {
+			return eval_stmt(interp, else_stmt)
+		}
+
+	case syntax.Block_Stmt:
+		for s in stmt.stmts {
+			err := eval_stmt(interp, s)
+			if err != nil do return err
+		}
 	}
 
 	return nil
@@ -70,8 +94,12 @@ eval :: proc(interp: ^Interpreter, expr: ^syntax.Expr) -> (Value, Maybe(Eval_Err
 
 	case syntax.Ident_Expr:
 		return eval_ident(interp, &v)
+
+	case syntax.Logical_Expr:
+		return eval_logical(interp, &v)
 	}
 
+	assert(false)
 	unreachable()
 }
 
@@ -97,6 +125,7 @@ eval_literal :: proc(interp: ^Interpreter, literal: ^syntax.Literal_Expr) -> (Va
 		return nil, nil
 	}
 
+	assert(false)
 	unreachable()
 }
 
@@ -119,6 +148,7 @@ eval_unary :: proc(interp: ^Interpreter, unary: ^syntax.Unary_Expr) -> (Value, M
 
 	}
 
+	assert(false)
 	unreachable()
 }
 
@@ -169,6 +199,7 @@ eval_binary :: proc(interp: ^Interpreter, binary: ^syntax.Binary_Expr) -> (Value
 		return ln >= rn, nil
 	}
 
+	assert(false)
 	unreachable()
 }
 
@@ -178,6 +209,26 @@ eval_ident :: proc(interp: ^Interpreter, ident: ^syntax.Ident_Expr) -> (Value, M
 	if !ok do return nil, .Undefined_Variable
 
 	return val, nil
+}
+
+eval_logical :: proc(interp: ^Interpreter, logical: ^syntax.Logical_Expr) -> (Value, Maybe(Eval_Error)) {
+	left, lerr := eval(interp, logical.left)
+	if lerr != nil do return nil, lerr
+
+	lb, ok := left.(bool)
+	if !ok do return nil, .Type_Error
+
+	// Short-circuit: only eval right when needed.
+	if logical.op == .Or && lb do return true, nil
+	if logical.op == .And && !lb do return false, nil
+
+	right, rerr := eval(interp, logical.right)
+	if rerr != nil do return nil, rerr
+
+	rb, ok2 := right.(bool)
+	if !ok2 do return nil, .Type_Error
+
+	return rb, nil
 }
 
 values_equal :: proc(a, b: Value) -> bool {
@@ -202,6 +253,7 @@ values_equal :: proc(a, b: Value) -> bool {
 		return ok && av == bv
 	}
 
+	assert(false)
 	unreachable()
 }
 
@@ -210,4 +262,5 @@ Eval_Error :: enum {
 	Type_Error,
 	Division_By_Zero,
 	Undefined_Variable,
+	Variable_Redeclaration,
 }

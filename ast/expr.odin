@@ -55,6 +55,16 @@ build_ast_from_expr :: proc(builder: ^strings.Builder, source: string, expr: ^sy
 			)
 			strings.write_string(builder, lexeme)
 		}
+	case syntax.Logical_Expr:
+		{
+			strings.write_byte(builder, '(')
+			strings.write_string(builder, expr.op == .And ? "and" : "or")
+			strings.write_byte(builder, ' ')
+			build_ast_from_expr(builder, source, expr.left)
+			strings.write_byte(builder, ' ')
+			build_ast_from_expr(builder, source, expr.right)
+			strings.write_byte(builder, ')')
+		}
 	}
 }
 

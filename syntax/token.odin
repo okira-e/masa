@@ -13,6 +13,9 @@ Token :: struct {
 
 Token_Kind :: enum {
 	New_Line,
+	Literal,
+	Keyword,
+	Ident,
 	Left_Paren,
 	Right_Paren,
 	Left_Brace,
@@ -35,9 +38,6 @@ Token_Kind :: enum {
 	Greater,
 	Comment,
 	Slash,
-	Literal,
-	Ident,
-	Keyword,
 	EOF,
 }
 
@@ -47,3 +47,25 @@ Literal_Kind :: enum {
 	Bool,
 	Nil,
 }
+
+// Keyword_Entry :: struct {
+// 	name: string,
+// 	kw:   Token_Kind,
+// }
+
+// keywords := []Keyword_Entry {
+// 	{"if", .If},
+// 	{"else if", .Else_If},
+// 	{"else", .Else},
+// }
+
+// keyword_from_string :: proc(s: string) -> Maybe(Token_Kind) {
+// 	for entry in keywords {
+// 		if entry.name == s {
+// 			return entry.kw
+// 		}
+// 	}
+
+// 	return nil
+// }
+
