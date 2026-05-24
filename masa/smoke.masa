@@ -4,7 +4,7 @@ import "core:fmt" // Masa built-in library
 import "jslib:zod" // JS managed library in node_modules
 
 System_User :: struct {
-	name: str
+	name: string
 	age: number
 }
 
@@ -25,4 +25,18 @@ main :: fn() { // Could be `async fn`
 	user_schema := user.get_schema() // `self: System_User` gives us method syntax
 
 	parsedUser: dict = user_schema.parse(user) `dict` is a type alias for `map[string]any`
+}
+
+IA :: interface {
+	a: string
+	foo() -> string
+}
+
+A :: struct {
+	a: string
+	b: string
+}
+
+foo :: fn(self: A) -> string { // Automatically passes as implements the interface
+	return self.a
 }

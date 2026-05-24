@@ -897,6 +897,17 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 			should_error = true,
 			error_kind   = .Unexpected_Token,
 		},
+		Test {
+			name         = "missing statement terminator",
+			source       = "1 2",
+			input        = []syntax.Token {
+				make_token(.Literal, 0, 1), // 1
+				make_token(.Literal, 2, 3), // 2
+				make_token(.EOF, 3, 4),
+			},
+			should_error = true,
+			error_kind   = .Missing_Terminator,
+		},
 	}
 
 	for test, i in tests {

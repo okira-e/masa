@@ -263,6 +263,43 @@ test_logical_precedence :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_inline_comment :: proc(t: ^testing.T) {
+	val, err := run("x := 5 // why this value\nx")
+	testing.expectf(t, err == nil, "unexpected error %v", err)
+	n, ok := val.(f64)
+	testing.expect(t, ok)
+	testing.expectf(t, n == 5, "got %v", n)
+}
+
+@(test)
+test_comment_only_lines :: proc(t: ^testing.T) {
+	val, err := run("// first\n// second\nx := 7\n// trailing\nx")
+	testing.expectf(t, err == nil, "unexpected error %v", err)
+	n, ok := val.(f64)
+	testing.expect(t, ok)
+	testing.expectf(t, n == 7, "got %v", n)
+}
+
+@(test)
+test_bare_block :: proc(t: ^testing.T) {
+	// With no scoping, the block's binding leaks out.
+	val, err := run("{ y := 5 }\ny")
+	testing.expectf(t, err == nil, "unexpected error %v", err)
+	n, ok := val.(f64)
+	testing.expect(t, ok)
+	testing.expectf(t, n == 5, "got %v", n)
+}
+
+@(test)
+test_empty_bare_block :: proc(t: ^testing.T) {
+	val, err := run("{}\n42")
+	testing.expectf(t, err == nil, "unexpected error %v", err)
+	n, ok := val.(f64)
+	testing.expect(t, ok)
+	testing.expectf(t, n == 42, "got %v", n)
+}
+
+@(test)
 test_undefined_variable :: proc(t: ^testing.T) {
 	_, err := run("x")
 	e, ok := err.?

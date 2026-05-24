@@ -1,8 +1,6 @@
 package parser
 
-import "core:os"
 import "../syntax"
-import "core:fmt"
 import "core:mem"
 
 /*
@@ -56,7 +54,7 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 	stmts := make([dynamic]^syntax.Stmt, 0, len(parser.tokens), allocator = parser.allocator)
 
 	for !is_at_end(parser) {
-		skip_newlines(parser)
+		skip_trivia(parser)
 		if is_at_end(parser) {
 			break
 		}
@@ -65,7 +63,9 @@ parse :: proc(parser: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 		if parser_err != nil do return stmts, parser_err
 
 		append(&stmts, stmt)
-		skip_newlines(parser)
+
+		term_err := expect_terminator(parser)
+		if term_err != nil do return stmts, term_err
 	}
 
 	return stmts, nil
@@ -82,6 +82,9 @@ parse_stmt :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 
 	case .Keyword:
 		return parse_keyword(parser, current)
+
+	case .Left_Brace:
+		return parse_block(parser)
 	}
 
 	// TODO: statements that depend on the next token like assignments.
@@ -106,7 +109,7 @@ parse_keyword :: proc(parser: ^Parser, token: syntax.Token) -> (^syntax.Stmt, Ma
 	case .Else:
 		return nil, Parser_Error {
 			kind = .Else_With_No_If,
-			message = "'else' without a matching 'if'",
+			message = "'else' has no matching 'if' — it must follow '}' on the same line",
 			token = token,
 		}
 	}
@@ -124,7 +127,7 @@ parse_if :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	condition, cond_err := parse_expr(parser)
 	if cond_err != nil do return nil, cond_err
 
-	skip_newlines(parser)
+	skip_trivia(parser)
 
 	then_block, then_err := parse_block(parser)
 	if then_err != nil do return nil, then_err
@@ -133,7 +136,7 @@ parse_if :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	tok := parser.tokens[parser.current]
 	if tok.kind == .Keyword && tok.keyword == .Else {
 		advance(parser) // consume `else`
-		skip_newlines(parser)
+		skip_trivia(parser)
 
 		next := parser.tokens[parser.current]
 		if next.kind == .Keyword && next.keyword == .If {
@@ -191,7 +194,7 @@ parse_block :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	inner := make([dynamic]^syntax.Stmt, 0, 8, allocator = parser.allocator)
 
 	for {
-		skip_newlines(parser)
+		skip_trivia(parser)
 
 		tok := parser.tokens[parser.current]
 		if tok.kind == .Right_Brace {
@@ -209,6 +212,9 @@ parse_block :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 		s, err := parse_stmt(parser)
 		if err != nil do return nil, err
 		append(&inner, s)
+
+		term_err := expect_terminator(parser)
+		if term_err != nil do return nil, term_err
 	}
 
 	stmt := new(syntax.Stmt, allocator = parser.allocator)
@@ -500,9 +506,27 @@ get_current_token :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	return token, false
 }
 
-skip_newlines :: proc(parser: ^Parser) {
-	for parser.tokens[parser.current].kind == .New_Line {
+skip_trivia :: proc(parser: ^Parser) {
+	for {
+		kind := parser.tokens[parser.current].kind
+		if kind != .New_Line && kind != .Comment do break
 		advance(parser)
+	}
+}
+
+// Requires the current token to be a valid statement terminator: newline, EOF,
+// or '}' (so blocks can end without a trailing newline). Trailing comments are
+// skipped first since they end at the line break anyway.
+expect_terminator :: proc(parser: ^Parser) -> Maybe(Parser_Error) {
+	for parser.tokens[parser.current].kind == .Comment {
+		advance(parser)
+	}
+	tok := parser.tokens[parser.current]
+	if tok.kind == .New_Line || tok.kind == .EOF || tok.kind == .Right_Brace do return nil
+	return Parser_Error {
+		kind = .Missing_Terminator,
+		message = "expected newline, '}', or end of input after statement",
+		token = tok,
 	}
 }
 
@@ -519,50 +543,5 @@ Parser_Error_Kind :: enum {
 	UnclosedParen,
 	Unexpected_Token,
 	Else_With_No_If,
-}
-
-parser_error_to_string :: proc(err: Parser_Error, allocator := context.allocator) -> string {
-	switch err.kind {
-	case .Unexpected_EOF:
-		return fmt.aprintf(
-			"Unexpected EOF token at line %d, column %d",
-			err.token.line,
-			err.token.column,
-			allocator = allocator,
-		)
-
-	case .Empty_Tokens:
-		return fmt.aprintf("No tokens found", allocator = allocator)
-
-	case .Missing_EOF:
-		return fmt.aprintf("Missing EOF token at the end of the token list", allocator = allocator)
-
-	case .UnclosedParen:
-		return fmt.aprintf(
-			"Expected a \")\" token to close the parenthesis opened at line %d, column %d",
-			err.token.line,
-			err.token.column,
-			allocator = allocator,
-		)
-
-	case .Unexpected_Token:
-		return fmt.aprintf(
-			"Unexpected token of kind %s at line %d, column %d",
-			err.token.kind,
-			err.token.line,
-			err.token.column,
-			allocator = allocator,
-		)
-
-	case .Else_With_No_If:
-		return fmt.aprintf(
-			"Found an else with no if",
-			err.token.kind,
-			err.token.line,
-			err.token.column,
-			allocator = allocator,
-		)
-	}
-
-	return fmt.aprintf("", allocator = allocator)
+	Missing_Terminator,
 }
