@@ -14,7 +14,6 @@ import "interpreter"
 
 App_Flags :: struct {
 	print_ast: bool `args:"name=print-ast"`,
-	emit_tokens: bool `args:"name=emit-tokens"`,
 }
 
 main :: proc() {
@@ -55,9 +54,6 @@ main :: proc() {
 	if lexing_err != nil {
 		fmt.fprintf(os.stderr, "Error while scanning: %v\n", lexing_err)
 		os.exit(1)
-	}
-	if app_flags.emit_tokens {
-		fmt.println("TOKENS:", tokens)
 	}
 
 	// Parsing

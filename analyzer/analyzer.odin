@@ -1,24 +1,42 @@
 package analyzer
 
 import "../syntax"
+import "core:mem"
 
 Analyzer :: struct {
 	source: string,
-	env:    map[string]Decl_Info,
+	env:    ^Scope,
 }
 
-Decl_Info :: struct {
-	constant:   bool,
-	decl_token: syntax.Token,
+Scope :: struct {
+	symbols: map[string]Symbol,
+	// parent being nil is the global scope
+	parent:  Maybe(^Scope),
+}
+
+Symbol :: struct {
+	constant: bool,
+	token:    syntax.Token,
 }
 
 init :: proc(analyzer: ^Analyzer, source: string) {
 	analyzer.source = source
-	analyzer.env = make(map[string]Decl_Info)
+	scope := new(Scope)
+	scope^ = {
+		symbols = make(map[string]Symbol), // TODO: Optimize
+		parent = nil,
+	}
+	analyzer.env = scope
 }
 
 destroy :: proc(analyzer: ^Analyzer) {
-	delete(analyzer.env)
+	current_scope: Maybe(^Scope) = analyzer.env
+	for current_scope != nil {
+		temp := current_scope
+		current_scope = temp.?.parent
+		delete(temp.?.symbols)
+		free(temp.?)
+	}
 }
 
 analyze :: proc(analyzer: ^Analyzer, stmts: []^syntax.Stmt) -> Maybe(Analyzer_Error) {
@@ -40,16 +58,16 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 		if err != nil do return err
 
 		name := analyzer.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
-		if _, exists := analyzer.env[name]; exists {
+		if _, exists := resolve_ident(analyzer, name); exists {
 			return Analyzer_Error {
-				kind = .Variable_Redeclaration,
-				token = stmt.name,
+				kind    = .Variable_Redeclaration,
+				token   = stmt.name,
 				message = "variable already declared",
 			}
 		}
-		analyzer.env[name] = Decl_Info {
-			constant   = stmt.mutable,
-			decl_token = stmt.name,
+		analyzer.env.symbols[name] = Symbol {
+			constant = stmt.mutable,
+			token    = stmt.name,
 		}
 
 	case syntax.Ident_Assignment_Stmt:
@@ -57,19 +75,19 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 		if err != nil do return err
 
 		name := analyzer.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
-		var, exists := analyzer.env[name]
+		var, exists := resolve_ident(analyzer, name)
 		if !exists {
 			return Analyzer_Error {
-				kind = .Variable_Undeclared,
-				token = stmt.name,
+				kind    = .Variable_Undeclared,
+				token   = stmt.name,
 				message = "variable not declared",
 			}
 		}
 
 		if !var.constant {
 			return Analyzer_Error {
-				kind = .Variable_Constant,
-				token = stmt.name,
+				kind    = .Variable_Constant,
+				token   = stmt.name,
 				message = "variable is decalred as a constant and thus cannot be changed",
 			}
 		}
@@ -82,11 +100,22 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 		}
 
 	case syntax.Block_Stmt:
-		// No new scope yet — blocks share the enclosing env, matching the
-		// interpreter's behavior. Block scope is a separate change.
-		for inner in stmt.stmts {
-			if err := check_stmt(analyzer, inner); err != nil do return err
+		// Add a new scope
+		new_scope := new(Scope)
+		new_scope^ = {
+			symbols = make(map[string]Symbol),
+			parent = analyzer.env,
 		}
+		analyzer.env = new_scope
+
+		for inner in stmt.stmts {
+			err := check_stmt(analyzer, inner)
+			if err != nil do return err
+		}
+
+		analyzer.env = new_scope.parent.?
+		delete(new_scope.symbols)
+		free(new_scope)
 	}
 
 	return nil
@@ -111,7 +140,7 @@ check_expr :: proc(analyzer: ^Analyzer, expr: ^syntax.Expr) -> Maybe(Analyzer_Er
 
 	case syntax.Ident_Expr:
 		name := analyzer.source[v.token.lexeme_start:v.token.lexeme_end]
-		if _, exists := analyzer.env[name]; !exists {
+		if _, exists := resolve_ident(analyzer, name); !exists {
 			return Analyzer_Error {
 				kind = .Undefined_Variable,
 				token = v.token,
@@ -128,6 +157,21 @@ check_expr :: proc(analyzer: ^Analyzer, expr: ^syntax.Expr) -> Maybe(Analyzer_Er
 
 	assert(false)
 	unreachable()
+}
+
+// Walk from the current block scope upward to find the identifier
+resolve_ident :: proc(analyzer: ^Analyzer, name: string) -> (Symbol, bool) {
+	current_scope: Maybe(^Scope) = analyzer.env
+	for current_scope != nil {
+		val, ok := current_scope.?.symbols[name]
+		if ok {
+			return val, ok
+		}
+
+		current_scope = current_scope.?.parent
+	}
+
+	return Symbol{}, false
 }
 
 Analyzer_Error :: struct {

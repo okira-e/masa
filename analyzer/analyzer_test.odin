@@ -68,6 +68,15 @@ test_ident_in_block :: proc(t: ^testing.T) {
 	testing.expectf(t, e.kind == .Undefined_Variable, "got %v", e.kind)
 }
 
+@(test)
+test_ident_declared_in_block :: proc(t: ^testing.T) {
+	source := "{ a := 5 }\na + 1"
+	err := check(source)
+	e, ok := err.?
+	testing.expect(t, ok)
+	testing.expectf(t, e.kind == .Undefined_Variable, "got %v", e.kind)
+}
+
 @(private)
 check :: proc(source: string) -> Maybe(Analyzer_Error) {
 	arena: mem.Dynamic_Arena

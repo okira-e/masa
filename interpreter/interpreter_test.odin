@@ -130,7 +130,9 @@ test_variables :: proc(t: ^testing.T) {
 
 @(test)
 test_if_then_runs :: proc(t: ^testing.T) {
-	val, err := run("if 1 == 1 { y := 5 }\ny")
+	// Declare in outer scope, assign inside the block. Block-scoped declarations
+	// don't leak, so we test branch selection via assignment to an outer binding.
+	val, err := run("y := 0\nif 1 == 1 { y = 5 }\ny")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	n, ok := val.(f64)
 	testing.expect(t, ok)
@@ -139,9 +141,7 @@ test_if_then_runs :: proc(t: ^testing.T) {
 
 @(test)
 test_if_else_picks_branch :: proc(t: ^testing.T) {
-	// Distinct names per branch — flat scope means a shared name across branches
-	// is a redeclaration. This goes away once block scope lands.
-	val, err := run("if 1 == 2 { then_y := 1 } else { else_y := 2 }\nelse_y")
+	val, err := run("y := 0\nif 1 == 2 { y = 1 } else { y = 2 }\ny")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	n, ok := val.(f64)
 	testing.expect(t, ok)
@@ -150,6 +150,7 @@ test_if_else_picks_branch :: proc(t: ^testing.T) {
 
 @(test)
 test_if_no_else_skips :: proc(t: ^testing.T) {
+	// y is block-scoped and never referenced outside; only the 42 is observable.
 	val, err := run("if 1 == 2 { y := 1 }\n42")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	n, ok := val.(f64)
@@ -159,7 +160,7 @@ test_if_no_else_skips :: proc(t: ^testing.T) {
 
 @(test)
 test_else_if_chain :: proc(t: ^testing.T) {
-	val, err := run("if 1 == 2 { y1 := 1 } else if 1 == 1 { y2 := 2 } else { y3 := 3 }\ny2")
+	val, err := run("y := 0\nif 1 == 2 { y = 1 } else if 1 == 1 { y = 2 } else { y = 3 }\ny")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	n, ok := val.(f64)
 	testing.expect(t, ok)
@@ -274,16 +275,6 @@ test_comment_only_lines :: proc(t: ^testing.T) {
 	n, ok := val.(f64)
 	testing.expect(t, ok)
 	testing.expectf(t, n == 7, "got %v", n)
-}
-
-@(test)
-test_bare_block :: proc(t: ^testing.T) {
-	// With no scoping, the block's binding leaks out.
-	val, err := run("{ y := 5 }\ny")
-	testing.expectf(t, err == nil, "unexpected error %v", err)
-	n, ok := val.(f64)
-	testing.expect(t, ok)
-	testing.expectf(t, n == 5, "got %v", n)
 }
 
 @(test)
