@@ -1,11 +1,13 @@
-x := 4 + 1
+x := 5
+
+x = 1
 
 pi :: 3
 
-if x * pi == 15 and false {
+if x * pi == 15 {
 	true
 } else if true {
-	5
+	x
 } else {
 	false
 }

@@ -18,6 +18,16 @@ build_ast_from_stmt :: proc(builder: ^strings.Builder, source: string, stmt: ^sy
 		build_ast_from_expr(builder, source, st.value)
 		strings.write_byte(builder, ')')
 
+	case syntax.Ident_Assignment_Stmt:
+		strings.write_byte(builder, '(')
+		strings.write_string(builder, "=")
+		strings.write_byte(builder, ' ')
+		name := source[st.name.lexeme_start:st.name.lexeme_end]
+		strings.write_string(builder, name)
+		strings.write_byte(builder, ' ')
+		build_ast_from_expr(builder, source, st.value)
+		strings.write_byte(builder, ')')
+
 	case syntax.If_Stmt:
 		strings.write_string(builder, "(if ")
 		build_ast_from_expr(builder, source, st.condition)

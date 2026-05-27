@@ -1,8 +1,10 @@
 package interpreter
 
+import "../analyzer"
 import "../lexer"
 import "../parser"
 import "../syntax"
+import "core:fmt"
 import "core:mem"
 import "core:testing"
 
@@ -127,14 +129,6 @@ test_variables :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_redeclaration :: proc(t: ^testing.T) {
-	_, err := run("x := 5\nx := 6")
-	e, ok := err.?
-	testing.expect(t, ok)
-	testing.expectf(t, e == .Variable_Redeclaration, "got %v", e)
-}
-
-@(test)
 test_if_then_runs :: proc(t: ^testing.T) {
 	val, err := run("if 1 == 1 { y := 5 }\ny")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
@@ -145,7 +139,9 @@ test_if_then_runs :: proc(t: ^testing.T) {
 
 @(test)
 test_if_else_picks_branch :: proc(t: ^testing.T) {
-	val, err := run("if 1 == 2 { y := 1 } else { y := 2 }\ny")
+	// Distinct names per branch — flat scope means a shared name across branches
+	// is a redeclaration. This goes away once block scope lands.
+	val, err := run("if 1 == 2 { then_y := 1 } else { else_y := 2 }\nelse_y")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	n, ok := val.(f64)
 	testing.expect(t, ok)
@@ -163,7 +159,7 @@ test_if_no_else_skips :: proc(t: ^testing.T) {
 
 @(test)
 test_else_if_chain :: proc(t: ^testing.T) {
-	val, err := run("if 1 == 2 { y := 1 } else if 1 == 1 { y := 2 } else { y := 3 }\ny")
+	val, err := run("if 1 == 2 { y1 := 1 } else if 1 == 1 { y2 := 2 } else { y3 := 3 }\ny2")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	n, ok := val.(f64)
 	testing.expect(t, ok)
@@ -218,8 +214,8 @@ test_logical_or :: proc(t: ^testing.T) {
 
 @(test)
 test_and_short_circuit :: proc(t: ^testing.T) {
-	// undefined_var would error if evaluated; short-circuit means it isn't.
-	val, err := run("1 == 2 and undefined_var")
+	// Right side would Division_By_Zero at runtime; short-circuit means it isn't evaluated.
+	val, err := run("1 == 2 and (1 / 0) == 0")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	b, ok := val.(bool)
 	testing.expect(t, ok)
@@ -228,7 +224,7 @@ test_and_short_circuit :: proc(t: ^testing.T) {
 
 @(test)
 test_or_short_circuit :: proc(t: ^testing.T) {
-	val, err := run("1 == 1 or undefined_var")
+	val, err := run("1 == 1 or (1 / 0) == 0")
 	testing.expectf(t, err == nil, "unexpected error %v", err)
 	b, ok := val.(bool)
 	testing.expect(t, ok)
@@ -299,14 +295,6 @@ test_empty_bare_block :: proc(t: ^testing.T) {
 	testing.expectf(t, n == 42, "got %v", n)
 }
 
-@(test)
-test_undefined_variable :: proc(t: ^testing.T) {
-	_, err := run("x")
-	e, ok := err.?
-	testing.expect(t, ok)
-	testing.expectf(t, e == .Undefined_Variable, "got %v", e)
-}
-
 @(private)
 run :: proc(source: string) -> (Value, Maybe(Eval_Error)) {
 	arena: mem.Dynamic_Arena
@@ -323,6 +311,13 @@ run :: proc(source: string) -> (Value, Maybe(Eval_Error)) {
 	parser.init(&p, tokens[:], arena_alloc)
 	stmts, _ := parser.parse(&p)
 	defer delete(stmts)
+
+	a: analyzer.Analyzer
+	analyzer.init(&a, source)
+	defer analyzer.destroy(&a)
+	if aerr := analyzer.analyze(&a, stmts[:]); aerr != nil {
+		panic(fmt.tprintf("test source failed analysis: %v", aerr))
+	}
 
 	interp: Interpreter
 	init(&interp, source)

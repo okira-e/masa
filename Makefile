@@ -8,6 +8,7 @@ test:
 	odin test lexer
 	odin test ast
 	odin test parser
+	odin test analyzer
 	odin test interpreter
 	
 release: # Usage: make release TARGET=linux_amd64, windows_amd64, darwin_arm64

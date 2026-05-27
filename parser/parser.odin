@@ -80,6 +80,10 @@ parse_stmt :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 			return parse_ident_decl(parser)
 		}
 
+		if ok && (next.kind == .Equal) {
+			return parse_ident_assignment(parser)
+		}
+
 	case .Keyword:
 		return parse_keyword(parser, current)
 
@@ -157,6 +161,20 @@ parse_if :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 		else_branch = else_branch,
 	}
 
+	return stmt, nil
+}
+
+parse_ident_assignment :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+	name := parser.tokens[parser.current]
+	advance(parser)
+
+	advance(parser) // '='
+
+	value, err := parse_expr(parser)
+	if err != nil do return nil, err
+
+	stmt := new(syntax.Stmt, allocator = parser.allocator)
+	stmt^ = syntax.Ident_Assignment_Stmt{value = value, name = name}
 	return stmt, nil
 }
 

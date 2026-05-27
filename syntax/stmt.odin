@@ -3,6 +3,7 @@ package syntax
 Stmt :: union {
 	Expr_Stmt,
 	Ident_Decl_Stmt,
+	Ident_Assignment_Stmt,
 	If_Stmt,
 	Block_Stmt,
 }
@@ -15,6 +16,11 @@ Ident_Decl_Stmt :: struct {
 	name:    Token,
 	value:   ^Expr,
 	mutable: bool,
+}
+
+Ident_Assignment_Stmt :: struct {
+	name:  Token,
+	value: ^Expr,
 }
 
 If_Stmt :: struct {

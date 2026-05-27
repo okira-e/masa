@@ -1,5 +1,6 @@
 package main
 
+import "analyzer"
 import "ast"
 import "core:flags"
 import "core:fmt"
@@ -71,6 +72,17 @@ main :: proc() {
 	}
 	if app_flags.print_ast {
 		print_ast(stmts[:], transmute(string)source)
+	}
+
+	// Static analysis
+
+	a: analyzer.Analyzer
+	analyzer.init(&a, transmute(string)source)
+	defer analyzer.destroy(&a)
+	analyzer_err := analyzer.analyze(&a, stmts[:])
+	if analyzer_err != nil {
+		fmt.fprintf(os.stderr, "Error while analyzing: %v\n", analyzer_err)
+		os.exit(1)
 	}
 
 	// Interpretation

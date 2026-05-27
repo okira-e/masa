@@ -42,17 +42,20 @@ eval_stmt :: proc(interp: ^Interpreter, stmt: ^syntax.Stmt) -> Maybe(Eval_Error)
 		if err != nil do return err
 
 		name := interp.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
-		if _, ok := interp.env[name]; ok {
-			return .Variable_Redeclaration
-		}
+		interp.env[name] = val
 
+	case syntax.Ident_Assignment_Stmt:
+		val, err := eval(interp, stmt.value)
+		if err != nil do return err
+
+		name := interp.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
 		interp.env[name] = val
 
 	case syntax.Expr_Stmt:
 		val, err := eval(interp, stmt.expr)
 		if err != nil do return err
 
-		fmt.println("VAL:", val)
+		fmt.println(val)
 
 	case syntax.If_Stmt:
 		cond_val, err := eval(interp, stmt.condition)
@@ -206,7 +209,7 @@ eval_binary :: proc(interp: ^Interpreter, binary: ^syntax.Binary_Expr) -> (Value
 eval_ident :: proc(interp: ^Interpreter, ident: ^syntax.Ident_Expr) -> (Value, Maybe(Eval_Error)) {
 	name := interp.source[ident.token.lexeme_start:ident.token.lexeme_end]
 	val, ok := interp.env[name]
-	if !ok do return nil, .Undefined_Variable
+	assert(ok) // analyzer guarantees the variable is defined
 
 	return val, nil
 }
@@ -261,6 +264,4 @@ Eval_Error :: enum {
 	Invalid_Literal,
 	Type_Error,
 	Division_By_Zero,
-	Undefined_Variable,
-	Variable_Redeclaration,
 }
