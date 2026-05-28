@@ -92,18 +92,20 @@ main :: proc() {
 }
 
 handle_js :: proc(app_flags: App_Flags, js: string) {
-	if app_flags.emit_js {
-		err := os.mkdir("js-out")
-		if err != nil && err != .Exist {
-			fmt.fprintf(os.stderr, "Failed to create js-out: %v\n", err)
-			os.exit(1)
-		}
+	err := os.mkdir("js-out")
+	if err != nil && err != .Exist {
+		fmt.fprintf(os.stderr, "Failed to create js-out: %v\n", err)
+		os.exit(1)
+	}
 
-		err = os.write_entire_file("js-out/main.js", js)
-		if err != nil {
-			fmt.fprintf(os.stderr, "Failed to create emitted files: %v\n", err)
-			os.exit(1)
-		}
+	err = os.write_entire_file("js-out/main.js", js)
+	if err != nil {
+		fmt.fprintf(os.stderr, "Failed to create emitted files: %v\n", err)
+		os.exit(1)
+	}
+
+	if !app_flags.emit_js {
+		os.remove_all("js-out")
 	}
 }
 
