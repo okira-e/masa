@@ -56,6 +56,7 @@ main :: proc() {
 		fmt.fprintf(os.stderr, "Error while scanning: %v\n", lexing_err)
 		os.exit(1)
 	}
+	// for it in tokens do fmt.println("TOK:", it.kind)
 
 	// Parsing
 
@@ -70,6 +71,7 @@ main :: proc() {
 	if app_flags.print_ast {
 		print_ast(stmts[:], transmute(string)source)
 	}
+	// for it in stmts do fmt.println("STMT:", it)
 
 	// Static analysis
 

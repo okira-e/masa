@@ -73,10 +73,13 @@ emit_if :: proc(t: ^Transpiler, stmt: syntax.If_Stmt) {
 }
 
 emit_ident_declaration :: proc(t: ^Transpiler, stmt: syntax.Ident_Decl_Stmt) {
-	strings.write_string(&t.output, stmt.constant ? "let " : "const ")
+	strings.write_string(&t.output, stmt.constant ? "const " : "let ")
 	emit_ident_token(t, stmt.name)
-	strings.write_string(&t.output, " = ")
-	emit_expr(t, stmt.value)
+
+	if stmt_val, ok := stmt.value.?; ok {
+		strings.write_string(&t.output, " = ")
+		emit_expr(t, stmt_val)
+	}
 }
 
 emit_ident_assignment :: proc(t: ^Transpiler, stmt: syntax.Ident_Assignment_Stmt) {

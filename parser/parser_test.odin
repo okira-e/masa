@@ -908,6 +908,43 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 			should_error = true,
 			error_kind   = .Missing_Terminator,
 		},
+		Test {
+			name         = "decl: missing type after colon",
+			source       = "x :",
+			input        = []syntax.Token {
+				make_token(.Ident, 0, 1), // x
+				make_token(.Colon, 2, 3), // :
+				make_token(.EOF, 3, 4),
+			},
+			should_error = true,
+			error_kind   = .Unexpected_Token,
+		},
+		Test {
+			name         = "decl: literal where type expected",
+			source       = "x : 5",
+			input        = []syntax.Token {
+				make_token(.Ident, 0, 1),   // x
+				make_token(.Colon, 2, 3),   // :
+				make_token(.Literal, 4, 5), // 5
+				make_token(.EOF, 5, 6),
+			},
+			should_error = true,
+			error_kind   = .Unexpected_Token,
+		},
+		Test {
+			name         = "decl: non-type keyword as type",
+			source       = "x : if = 5",
+			input        = []syntax.Token {
+				make_token(.Ident, 0, 1),                // x
+				make_token(.Colon, 2, 3),                // :
+				make_keyword_token(4, 6, .If),           // if
+				make_token(.Equal, 7, 8),                // =
+				make_token(.Literal, 9, 10),             // 5
+				make_token(.EOF, 10, 11),
+			},
+			should_error = true,
+			error_kind   = .Incorrect_Type_Expr,
+		},
 	}
 
 	for test, i in tests {
@@ -950,10 +987,192 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 	}
 }
 
+@(test)
+test_declarations :: proc(t: ^testing.T) {
+	Decl_Test :: struct {
+		name:        string,
+		input:       []syntax.Token,
+		constant:    bool,
+		has_type:    bool,
+		type_kw:     syntax.Keyword,
+		has_value:   bool,
+	}
+
+	tests := []Decl_Test {
+		// x := 5
+		Decl_Test {
+			name = "untyped mutable",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon_Equal, 2, 4),
+				make_token(.Literal, 5, 6),
+				make_token(.EOF, 6, 7),
+			},
+			constant  = false,
+			has_type  = false,
+			has_value = true,
+		},
+		// x :: 5
+		Decl_Test {
+			name = "untyped constant",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon_Colon, 2, 4),
+				make_token(.Literal, 5, 6),
+				make_token(.EOF, 6, 7),
+			},
+			constant  = true,
+			has_type  = false,
+			has_value = true,
+		},
+		// x : number = 5
+		Decl_Test {
+			name = "typed mutable with value",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon, 2, 3),
+				make_keyword_token(4, 10, .Number),
+				make_token(.Equal, 11, 12),
+				make_token(.Literal, 13, 14),
+				make_token(.EOF, 14, 15),
+			},
+			constant  = false,
+			has_type  = true,
+			type_kw   = .Number,
+			has_value = true,
+		},
+		// x : number : 5
+		Decl_Test {
+			name = "typed constant with value",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon, 2, 3),
+				make_keyword_token(4, 10, .Number),
+				make_token(.Colon, 11, 12),
+				make_token(.Literal, 13, 14),
+				make_token(.EOF, 14, 15),
+			},
+			constant  = true,
+			has_type  = true,
+			type_kw   = .Number,
+			has_value = true,
+		},
+		// x : number
+		Decl_Test {
+			name = "typed bare (no value)",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon, 2, 3),
+				make_keyword_token(4, 10, .Number),
+				make_token(.EOF, 10, 11),
+			},
+			constant  = false,
+			has_type  = true,
+			type_kw   = .Number,
+			has_value = false,
+		},
+		// y : bool = true (different type keyword)
+		Decl_Test {
+			name = "typed mutable bool",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon, 2, 3),
+				make_keyword_token(4, 8, .Bool),
+				make_token(.Equal, 9, 10),
+				make_token(.Literal, 11, 15),
+				make_token(.EOF, 15, 16),
+			},
+			constant  = false,
+			has_type  = true,
+			type_kw   = .Bool,
+			has_value = true,
+		},
+	}
+
+	for test in tests {
+		arena: mem.Dynamic_Arena
+		mem.dynamic_arena_init(&arena)
+		arena_alloc := mem.dynamic_arena_allocator(&arena)
+		defer mem.dynamic_arena_destroy(&arena)
+
+		parser: Parser
+		init(&parser, test.input, arena_alloc)
+		stmts, parser_err := parse(&parser)
+		defer delete(stmts)
+
+		if parser_err != nil {
+			testing.expectf(t, false, "%s: unexpected error: %v", test.name, parser_err)
+			continue
+		}
+		if len(stmts) != 1 {
+			testing.expectf(t, false, "%s: expected 1 stmt, got %d", test.name, len(stmts))
+			continue
+		}
+
+		decl, ok := stmts[0]^.(syntax.Ident_Decl_Stmt)
+		if !ok {
+			testing.expectf(t, false, "%s: stmt is not an Ident_Decl_Stmt", test.name)
+			continue
+		}
+
+		testing.expectf(
+			t,
+			decl.constant == test.constant,
+			"%s: constant=%v, want %v",
+			test.name,
+			decl.constant,
+			test.constant,
+		)
+
+		type_tok, type_ok := decl.type.?
+		testing.expectf(
+			t,
+			type_ok == test.has_type,
+			"%s: has_type=%v, want %v",
+			test.name,
+			type_ok,
+			test.has_type,
+		)
+		if test.has_type && type_ok {
+			kw, _ := type_tok.keyword.?
+			testing.expectf(
+				t,
+				kw == test.type_kw,
+				"%s: type keyword=%v, want %v",
+				test.name,
+				kw,
+				test.type_kw,
+			)
+		}
+
+		_, value_ok := decl.value.?
+		testing.expectf(
+			t,
+			value_ok == test.has_value,
+			"%s: has_value=%v, want %v",
+			test.name,
+			value_ok,
+			test.has_value,
+		)
+	}
+}
+
 @(private = "file")
 make_token :: proc(kind: syntax.Token_Kind, start: int, end: int) -> syntax.Token {
 	return syntax.Token {
 		kind = kind,
+		line = 1,
+		lexeme_start = start,
+		lexeme_end = end,
+		column = start,
+	}
+}
+
+@(private = "file")
+make_keyword_token :: proc(start: int, end: int, kw: syntax.Keyword) -> syntax.Token {
+	return syntax.Token {
+		kind = .Keyword,
+		keyword = kw,
 		line = 1,
 		lexeme_start = start,
 		lexeme_end = end,

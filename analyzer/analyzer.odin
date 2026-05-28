@@ -1,7 +1,6 @@
 package analyzer
 
 import "../syntax"
-import "core:mem"
 
 Analyzer :: struct {
 	source: string,
@@ -54,8 +53,10 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 		return check_expr(analyzer, stmt.expr)
 
 	case syntax.Ident_Decl_Stmt:
-		err := check_expr(analyzer, stmt.value)
-		if err != nil do return err
+		if stmt_val, ok := stmt.value.?; ok {
+			err := check_expr(analyzer, stmt_val)
+			if err != nil do return err
+		}
 
 		name := analyzer.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
 		if _, exists := resolve_ident(analyzer, name); exists {
@@ -84,11 +85,11 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 			}
 		}
 
-		if !var.constant {
+		if var.constant {
 			return Analyzer_Error {
 				kind    = .Variable_Constant,
 				token   = stmt.name,
-				message = "variable is decalred as a constant and thus cannot be changed",
+				message = "variable is declared as a constant and thus cannot be changed",
 			}
 		}
 

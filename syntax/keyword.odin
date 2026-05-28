@@ -5,6 +5,10 @@ Keyword :: enum u8 {
 	Else,
 	And,
 	Or,
+	Bool,
+	Number,
+	Any,
+	String,
 }
 
 Keyword_Entry :: struct {
@@ -13,10 +17,14 @@ Keyword_Entry :: struct {
 }
 
 keywords := []Keyword_Entry {
-	{"if", .If},
-	{"else", .Else},
-	{"and", .And},
-	{"or", .Or},
+	{"if",     .If},
+	{"else",   .Else},
+	{"and",    .And},
+	{"or",     .Or},
+	{"bool",   .Bool},
+	{"number", .Number},
+	{"any",    .Any},
+	{"string", .String},
 }
 
 keyword_from_string :: proc(s: string) -> Maybe(Keyword) {
@@ -27,4 +35,13 @@ keyword_from_string :: proc(s: string) -> Maybe(Keyword) {
 	}
 
 	return nil
+}
+
+is_keyword_type :: proc(keyword: Keyword) -> bool {
+	#partial switch keyword {
+	case .Bool, .Number, .String, .Any:
+		return true
+	}
+
+	return false
 }

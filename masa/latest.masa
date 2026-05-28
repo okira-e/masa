@@ -1,4 +1,4 @@
-x := 5
+x: number = 5
 
 {
 	x = 1
@@ -14,3 +14,4 @@ if x * pi == 15 and true {
 	false
 }
 
+a: bool

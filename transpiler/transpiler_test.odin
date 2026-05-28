@@ -4,7 +4,11 @@ import "../analyzer"
 import "../lexer"
 import "../parser"
 import "core:mem"
+import "core:strings"
 import "core:testing"
+
+@(private)
+USE_STRICT_PREFIX :: "\"use strict\";\n\n"
 
 @(test)
 test_let_decl :: proc(t: ^testing.T) {
@@ -161,6 +165,9 @@ expect_js :: proc(t: ^testing.T, source: string, expected: string) {
 	init(&tr, source)
 	defer destroy(&tr)
 	got := transpile(&tr, stmts[:])
+
+	// Strip the "use strict"
+	got = strings.trim_prefix(got, USE_STRICT_PREFIX)
 
 	testing.expectf(
 		t,

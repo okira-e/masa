@@ -16,15 +16,36 @@ Parser development guide/rules:
 /*
 Grammar in BNF notation:
 
-- expression 	-> logic_or ;
-- logic_or 		-> logic_and ( "or" logic_and )* ;
-- logic_and 	-> equality ( "and" equality )* ;
-- equality 		-> comparison ( ( "!=" | "==" ) comparison )* ;
-- comparison 	-> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-- term 			-> factor ( ( "-" | "+" ) factor )* ;
-- factor 		-> unary ( ( "/" | "*" ) unary )* ;
-- unary 		-> ( "!" | "-" ) unary | primary ;
-- primary 		-> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
+Statements:
+- program          -> ( statement TERMINATOR )* ;
+- statement        -> ident_decl | ident_assignment | if_stmt | block | expr_stmt ;
+- ident_decl       -> IDENT ( ":=" | "::" ) expression
+                    | IDENT ":" TYPE ( ( "=" | ":" ) expression )? ;
+- ident_assignment -> IDENT "=" expression ;
+- if_stmt          -> "if" expression block ( "else" ( if_stmt | block ) )? ;
+- block            -> "{" ( statement TERMINATOR )* "}" ;
+- expr_stmt        -> expression ;
+- TYPE             -> "bool" | "number" | "any" | "string" ;
+
+Expressions:
+- expression -> logic_or ;
+- logic_or   -> logic_and ( "or" logic_and )* ;
+- logic_and  -> equality ( "and" equality )* ;
+- equality   -> comparison ( ( "!=" | "==" ) comparison )* ;
+- comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+- term       -> factor ( ( "-" | "+" ) factor )* ;
+- factor     -> unary ( ( "/" | "*" ) unary )* ;
+- unary      -> ( "!" | "-" ) unary | primary ;
+- primary    -> NUMBER | STRING | IDENT | "(" expression ")" ;
+
+Notes:
+- TERMINATOR is satisfied by NEWLINE, EOF, or a following "}" (end of block).
+- Comments and consecutive newlines between statements are trivia and skipped.
+- IDENT is any identifier token; keywords ("if", "else", "and", "or") don't match.
+- "and"/"or" are lexed as keyword tokens, not operator punctuation.
+- ident_decl mutability: ":=" is mutable, "::" is constant.
+  For typed declarations, the initializer separator picks mutability:
+  "= expr" → mutable, ": expr" → constant. No initializer → bare typed decl.
 */
 Parser :: struct {
 	tokens:    []syntax.Token,
@@ -76,12 +97,14 @@ parse_stmt :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	#partial switch current.kind {
 	case .Ident:
 		next, ok := peek_next(parser)
-		if ok && (next.kind == .Colon_Equal || next.kind == .Colon_Colon) {
-			return parse_ident_decl(parser)
-		}
+		if ok {
+			#partial switch next.kind {
+			case .Colon_Equal, .Colon_Colon, .Colon:
+				return parse_ident_decl(parser)
 
-		if ok && (next.kind == .Equal) {
-			return parse_ident_assignment(parser)
+			case .Equal:
+				return parse_ident_assignment(parser)
+			}
 		}
 
 	case .Keyword:
@@ -182,17 +205,72 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 	name := parser.tokens[parser.current]
 	advance(parser)
 
-	op := parser.tokens[parser.current]
-	advance(parser)
+	stmt: ^syntax.Stmt
+	#partial switch parser.tokens[parser.current].kind {
+	case .Colon_Equal, .Colon_Colon:
+		op := parser.tokens[parser.current]
+		advance(parser)
 
-	value, err := parse_expr(parser)
-	if err != nil do return nil, err
+		value, err := parse_expr(parser)
+		if err != nil do return nil, err
 
-	stmt := new(syntax.Stmt, allocator = parser.allocator)
-	stmt^ = syntax.Ident_Decl_Stmt {
-		name    = name,
-		value   = value,
-		constant = op.kind == .Colon_Equal,
+		stmt = new(syntax.Stmt, allocator = parser.allocator)
+		stmt^ = syntax.Ident_Decl_Stmt {
+			name     = name,
+			value    = value,
+			constant = op.kind == .Colon_Colon,
+		}
+
+	case .Colon:
+		advance(parser)
+
+		if parser.tokens[parser.current].kind != .Keyword {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected a type after a ':' in variable declaration",
+				token   = parser.tokens[parser.current],
+			}
+		}
+
+		if !syntax.is_keyword_type(parser.tokens[parser.current].keyword.?) {
+			return nil, Parser_Error {
+				kind    = .Incorrect_Type_Expr,
+				message = "expected a built-in or a user-defined type",
+				token   = parser.tokens[parser.current],
+			}
+		}
+
+		type := parser.tokens[parser.current]
+		advance(parser)
+
+		value: Maybe(^syntax.Expr)
+		constant := false
+		current := parser.tokens[parser.current].kind
+		if current == .Equal || current == .Colon {
+			if current == .Colon {
+				constant = true
+			}
+
+			advance(parser) // '=' or ':'
+			err: Maybe(Parser_Error)
+			value, err = parse_expr(parser)
+			if err != nil do return nil, err
+		}
+
+		stmt = new(syntax.Stmt, allocator = parser.allocator)
+		stmt^ = syntax.Ident_Decl_Stmt {
+			name     = name,
+			value    = value,
+			constant = constant,
+			type     = type,
+		}
+
+	case:
+		return nil, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected ':=', '::', or ':' after identifier in declaration",
+			token   = parser.tokens[parser.current],
+		}
 	}
 
 	return stmt, nil
@@ -202,9 +280,9 @@ parse_block :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	open := parser.tokens[parser.current]
 	if open.kind != .Left_Brace {
 		return nil, Parser_Error {
-			kind = .Unexpected_Token,
+			kind    = .Unexpected_Token,
 			message = "expected '{' to start block",
-			token = open,
+			token   = open,
 		}
 	}
 	advance(parser)
@@ -562,4 +640,5 @@ Parser_Error_Kind :: enum {
 	Unexpected_Token,
 	Else_With_No_If,
 	Missing_Terminator,
+	Incorrect_Type_Expr,
 }

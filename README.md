@@ -41,3 +41,8 @@ color := match status {
 	.Failed => .Red,
 }
 ```
+## Project State
+
+Latest language features supported can be found in [latest.masa](./masa/latest.masa).
+
+| Note: Langauge is in early development and language syntax and features are prone to change.

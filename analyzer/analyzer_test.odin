@@ -77,6 +77,65 @@ test_ident_declared_in_block :: proc(t: ^testing.T) {
 	testing.expectf(t, e.kind == .Undefined_Variable, "got %v", e.kind)
 }
 
+@(test)
+test_typed_decl_mutable_with_value :: proc(t: ^testing.T) {
+	// x : number = 5  →  declared, mutable, value present. Using x is fine.
+	err := check("x : number = 5\nx + 1")
+	testing.expectf(t, err == nil, "unexpected error: %v", err)
+}
+
+@(test)
+test_typed_decl_constant_with_value :: proc(t: ^testing.T) {
+	// x : number : 5  →  declared, constant. Reading is fine.
+	err := check("x : number : 5\nx + 1")
+	testing.expectf(t, err == nil, "unexpected error: %v", err)
+}
+
+@(test)
+test_typed_decl_no_value :: proc(t: ^testing.T) {
+	// x : number  →  declared but uninitialized. Analyzer accepts since the
+	// name is in scope; runtime init is a separate concern.
+	err := check("x : number\nx + 1")
+	testing.expectf(t, err == nil, "unexpected error: %v", err)
+}
+
+@(test)
+test_typed_constant_cannot_be_reassigned :: proc(t: ^testing.T) {
+	err := check("x : number : 5\nx = 10")
+	e, ok := err.?
+	testing.expect(t, ok)
+	testing.expectf(t, e.kind == .Variable_Constant, "got %v", e.kind)
+}
+
+@(test)
+test_typed_mutable_can_be_reassigned :: proc(t: ^testing.T) {
+	err := check("x : number = 5\nx = 10")
+	testing.expectf(t, err == nil, "unexpected error: %v", err)
+}
+
+@(test)
+test_untyped_constant_cannot_be_reassigned :: proc(t: ^testing.T) {
+	// Regression: ensure the untyped `::` path also records constant correctly.
+	err := check("pi :: 3\npi = 5")
+	e, ok := err.?
+	testing.expect(t, ok)
+	testing.expectf(t, e.kind == .Variable_Constant, "got %v", e.kind)
+}
+
+@(test)
+test_untyped_mutable_can_be_reassigned :: proc(t: ^testing.T) {
+	err := check("x := 5\nx = 10")
+	testing.expectf(t, err == nil, "unexpected error: %v", err)
+}
+
+@(test)
+test_typed_redeclaration :: proc(t: ^testing.T) {
+	err := check("x : number = 5\nx : number = 10")
+	e, ok := err.?
+	testing.expect(t, ok)
+	testing.expectf(t, e.kind == .Variable_Redeclaration, "got %v", e.kind)
+}
+
 @(private)
 check :: proc(source: string) -> Maybe(Analyzer_Error) {
 	arena: mem.Dynamic_Arena

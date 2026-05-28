@@ -14,8 +14,9 @@ Expr_Stmt :: struct {
 
 Ident_Decl_Stmt :: struct {
 	name:     Token,
-	value:    ^Expr,
+	value:    Maybe(^Expr),
 	constant: bool,
+	type:     Maybe(Token),
 }
 
 Ident_Assignment_Stmt :: struct {
