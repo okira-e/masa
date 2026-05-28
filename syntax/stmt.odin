@@ -13,9 +13,9 @@ Expr_Stmt :: struct {
 }
 
 Ident_Decl_Stmt :: struct {
-	name:    Token,
-	value:   ^Expr,
-	mutable: bool,
+	name:     Token,
+	value:    ^Expr,
+	constant: bool,
 }
 
 Ident_Assignment_Stmt :: struct {

@@ -192,7 +192,7 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 	stmt^ = syntax.Ident_Decl_Stmt {
 		name    = name,
 		value   = value,
-		mutable = op.kind == .Colon_Equal,
+		constant = op.kind == .Colon_Equal,
 	}
 
 	return stmt, nil

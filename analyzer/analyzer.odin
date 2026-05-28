@@ -23,7 +23,7 @@ init :: proc(analyzer: ^Analyzer, source: string) {
 	analyzer.source = source
 	scope := new(Scope)
 	scope^ = {
-		symbols = make(map[string]Symbol), // TODO: Optimize
+		symbols = make(map[string]Symbol),
 		parent = nil,
 	}
 	analyzer.env = scope
@@ -66,7 +66,7 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 			}
 		}
 		analyzer.env.symbols[name] = Symbol {
-			constant = stmt.mutable,
+			constant = stmt.constant,
 			token    = stmt.name,
 		}
 

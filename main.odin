@@ -10,10 +10,11 @@ import "core:strings"
 import "lexer"
 import "parser"
 import "syntax"
-import "interpreter"
+import "transpiler"
 
 App_Flags :: struct {
 	print_ast: bool `args:"name=print-ast"`,
+	emit_js:   bool `args:"name=emit-js"`,
 }
 
 main :: proc() {
@@ -81,15 +82,28 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	// Interpretation
+	// Transpilation to JavaScript
 
-	interp: interpreter.Interpreter
-	interpreter.init(&interp, transmute(string)source)
-	defer interpreter.destroy(&interp)
-	eval_err := interpreter.interpret(&interp, stmts[:])
-	if eval_err != nil {
-		fmt.fprintf(os.stderr, "Error while running: %v\n", eval_err)
-		os.exit(1)
+	tr: transpiler.Transpiler
+	transpiler.init(&tr, transmute(string)source)
+	defer transpiler.destroy(&tr)
+	js := transpiler.transpile(&tr, stmts[:])
+	handle_js(app_flags, js)
+}
+
+handle_js :: proc(app_flags: App_Flags, js: string) {
+	if app_flags.emit_js {
+		err := os.mkdir("js-out")
+		if err != nil && err != .Exist {
+			fmt.fprintf(os.stderr, "Failed to create js-out: %v\n", err)
+			os.exit(1)
+		}
+
+		err = os.write_entire_file("js-out/main.js", js)
+		if err != nil {
+			fmt.fprintf(os.stderr, "Failed to create emitted files: %v\n", err)
+			os.exit(1)
+		}
 	}
 }
 

@@ -10,7 +10,7 @@ build_ast_from_stmt :: proc(builder: ^strings.Builder, source: string, stmt: ^sy
 
 	case syntax.Ident_Decl_Stmt:
 		strings.write_byte(builder, '(')
-		strings.write_string(builder, st.mutable ? ":=" : "::")
+		strings.write_string(builder, st.constant ? ":=" : "::")
 		strings.write_byte(builder, ' ')
 		name := source[st.name.lexeme_start:st.name.lexeme_end]
 		strings.write_string(builder, name)
