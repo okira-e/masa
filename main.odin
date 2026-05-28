@@ -105,7 +105,11 @@ handle_js :: proc(app_flags: App_Flags, js: string) {
 	}
 
 	if !app_flags.emit_js {
-		os.remove_all("js-out")
+		err = os.remove_all("js-out")
+		if err != nil {
+			fmt.fprintf(os.stderr, "Failed to remove the emitted files directory: %v\n", err)
+			os.exit(1)
+		}
 	}
 }
 

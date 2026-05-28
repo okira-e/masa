@@ -34,4 +34,10 @@ main :: fn() {                                           // Could be `async fn`
 
     parsed_user: dict = user_schema.parse(user) `dict` is a type alias for `map[string]any`
 }
+
+color := match status {
+	.Loading => .Yellow,
+	.Success => .Green,
+	.Failed => .Red,
+}
 ```

@@ -20,12 +20,18 @@ destroy :: proc(t: ^Transpiler) {
 }
 
 transpile :: proc(t: ^Transpiler, stmts: []^syntax.Stmt) -> string {
+	emit_headers(t);
+
 	for stmt in stmts {
 		emit_stmt(t, stmt)
 		strings.write_byte(&t.output, '\n')
 	}
 
 	return strings.to_string(t.output)
+}
+
+emit_headers :: proc(t: ^Transpiler) {
+	strings.write_string(&t.output, "\"use strict\";\n\n");
 }
 
 emit_stmt :: proc(t: ^Transpiler, stmt: ^syntax.Stmt, do_indent := true) {
