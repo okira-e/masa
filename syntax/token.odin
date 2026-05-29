@@ -11,7 +11,7 @@ Token :: struct {
 	keyword:      Maybe(Keyword),
 }
 
-Token_Kind :: enum {
+Token_Kind :: enum u8 {
 	New_Line,
 	Literal,
 	Keyword,
@@ -41,31 +41,10 @@ Token_Kind :: enum {
 	EOF,
 }
 
-Literal_Kind :: enum {
+Literal_Kind :: enum u8 {
 	Number,
 	String,
 	Bool,
 	Nil,
 }
-
-// Keyword_Entry :: struct {
-// 	name: string,
-// 	kw:   Token_Kind,
-// }
-
-// keywords := []Keyword_Entry {
-// 	{"if", .If},
-// 	{"else if", .Else_If},
-// 	{"else", .Else},
-// }
-
-// keyword_from_string :: proc(s: string) -> Maybe(Token_Kind) {
-// 	for entry in keywords {
-// 		if entry.name == s {
-// 			return entry.kw
-// 		}
-// 	}
-
-// 	return nil
-// }
 

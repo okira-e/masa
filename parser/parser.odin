@@ -566,13 +566,13 @@ advance :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 		parser.current += 1
 		return prev, true
 	} else {
-		return syntax.Token{}, false
+		return {}, false
 	}
 }
 
 peek_next :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	if parser.current >= len(parser.tokens) - 1 {
-		return syntax.Token{}, false
+		return {}, false
 	}
 
 	return parser.tokens[parser.current + 1], true
@@ -596,7 +596,7 @@ matches :: proc(lhs: syntax.Token_Kind, rhs: ..syntax.Token_Kind) -> bool {
 get_current_token :: proc(parser: ^Parser) -> (syntax.Token, bool) {
 	token := parser.tokens[parser.current]
 	if token.kind == .EOF {
-		return syntax.Token{}, true
+		return {}, true
 	}
 
 	return token, false

@@ -16,7 +16,7 @@ System_User :: struct {
 }
 
 get_schema :: fn(self: System_User) -> zod.ZodObject {   // Return type is inferable
-    return zod.object(.{                                 // Direct JavaScript library "unsafe" call
+    return zod.object({                                  // Direct JavaScript library "unsafe" call
         name: zod.string(),
     })
 }

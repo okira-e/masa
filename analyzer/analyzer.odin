@@ -172,7 +172,7 @@ resolve_ident :: proc(analyzer: ^Analyzer, name: string) -> (Symbol, bool) {
 		current_scope = current_scope.?.parent
 	}
 
-	return Symbol{}, false
+	return {}, false
 }
 
 Analyzer_Error :: struct {
@@ -181,7 +181,7 @@ Analyzer_Error :: struct {
 	message: string,
 }
 
-Analyzer_Error_Kind :: enum {
+Analyzer_Error_Kind :: enum u8 {
 	Undefined_Variable,
 	Variable_Redeclaration,
 	Variable_Undeclared,
