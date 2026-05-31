@@ -1,5 +1,6 @@
 package analyzer
 
+import "core:fmt"
 import "../syntax"
 
 Analyzer :: struct {
@@ -16,6 +17,18 @@ Scope :: struct {
 Symbol :: struct {
 	constant: bool,
 	token:    syntax.Token,
+	type:     Type,
+}
+
+Type :: union {
+	Primitive,
+	syntax.Token
+}
+
+Primitive :: enum {
+	Number,
+	String,
+	Bool
 }
 
 init :: proc(analyzer: ^Analyzer, source: string) {
@@ -50,11 +63,15 @@ analyze :: proc(analyzer: ^Analyzer, stmts: []^syntax.Stmt) -> Maybe(Analyzer_Er
 check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Error) {
 	switch stmt in stmt {
 	case syntax.Expr_Stmt:
-		return check_expr(analyzer, stmt.expr)
+		_, err := check_expr(analyzer, stmt.expr)
+		return err
 
 	case syntax.Ident_Decl_Stmt:
-		if stmt_val, ok := stmt.value.?; ok {
-			err := check_expr(analyzer, stmt_val)
+		type: Type = nil
+		stmt_val, ok := stmt.value.?
+		if ok {
+			err: Maybe(Analyzer_Error)
+			type, err = check_expr(analyzer, stmt_val)
 			if err != nil do return err
 		}
 
@@ -69,10 +86,11 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 		analyzer.env.symbols[name] = Symbol {
 			constant = stmt.constant,
 			token    = stmt.name,
+			type     = type,
 		}
 
 	case syntax.Ident_Assignment_Stmt:
-		err := check_expr(analyzer, stmt.value)
+		t, err := check_expr(analyzer, stmt.value)
 		if err != nil do return err
 
 		name := analyzer.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
@@ -84,6 +102,7 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 				message = "variable not declared",
 			}
 		}
+		assert(var.type != nil)
 
 		if var.constant {
 			return Analyzer_Error {
@@ -93,8 +112,16 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 			}
 		}
 
+		if var.type != t {
+			return Analyzer_Error {
+				kind    = .Type_Mismatch_On_Assignment,
+				token   = stmt.name,
+				message = "type mismatch",
+			}
+		}
+
 	case syntax.If_Stmt:
-		if err := check_expr(analyzer, stmt.condition); err != nil do return err
+		if _, err := check_expr(analyzer, stmt.condition); err != nil do return err
 		if err := check_stmt(analyzer, stmt.then_block); err != nil do return err
 		if else_stmt, has_else := stmt.else_branch.?; has_else {
 			if err := check_stmt(analyzer, else_stmt); err != nil do return err
@@ -122,17 +149,19 @@ check_stmt :: proc(analyzer: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Er
 	return nil
 }
 
-check_expr :: proc(analyzer: ^Analyzer, expr: ^syntax.Expr) -> Maybe(Analyzer_Error) {
+check_expr :: proc(analyzer: ^Analyzer, expr: ^syntax.Expr) -> (Type, Maybe(Analyzer_Error)) {
 	switch v in expr.expr {
 	case syntax.Literal_Expr:
-		return nil
+		literal_kind, ok := v.token.literal_kind.?
+		assert(ok)
+		return literal_kind_to_type(literal_kind), nil
 
 	case syntax.Unary_Expr:
 		return check_expr(analyzer, v.right)
 
 	case syntax.Binary_Expr:
-		err := check_expr(analyzer, v.left)
-		if err != nil do return err
+		_, err := check_expr(analyzer, v.left)
+		if err != nil do return {}, err
 
 		return check_expr(analyzer, v.right)
 
@@ -141,18 +170,20 @@ check_expr :: proc(analyzer: ^Analyzer, expr: ^syntax.Expr) -> Maybe(Analyzer_Er
 
 	case syntax.Ident_Expr:
 		name := analyzer.source[v.token.lexeme_start:v.token.lexeme_end]
-		if _, exists := resolve_ident(analyzer, name); !exists {
-			return Analyzer_Error {
+		var, exists := resolve_ident(analyzer, name)
+		if !exists {
+			return {}, Analyzer_Error {
 				kind = .Undefined_Variable,
 				token = v.token,
 				message = "undefined variable",
 			}
 		}
-		return nil
+
+		return var.type, nil
 
 	case syntax.Logical_Expr:
-		err := check_expr(analyzer, v.left)
-		if err != nil do return err
+		_, err := check_expr(analyzer, v.left)
+		if err != nil do return {}, err
 		return check_expr(analyzer, v.right)
 	}
 
@@ -186,5 +217,16 @@ Analyzer_Error_Kind :: enum u8 {
 	Variable_Redeclaration,
 	Variable_Undeclared,
 	Variable_Constant,
+	Type_Mismatch_On_Assignment,
 }
 
+literal_kind_to_type :: proc(lk: syntax.Literal_Kind) -> Type {
+	#partial switch lk {
+	case .Number: return .Number
+	case .String: return .String
+	case .Bool: return .Bool
+	}
+
+	assert(false, fmt.aprintf("Got: %v", lk))
+	unreachable()
+}

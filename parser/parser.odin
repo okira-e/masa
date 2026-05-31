@@ -1,5 +1,6 @@
 package parser
 
+import "core:fmt"
 import "../syntax"
 import "core:mem"
 
@@ -224,30 +225,26 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 	case .Colon:
 		advance(parser)
 
-		if parser.tokens[parser.current].kind != .Keyword {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected a type after a ':' in variable declaration",
-				token   = parser.tokens[parser.current],
-			}
-		}
-
-		if !syntax.is_keyword_type(parser.tokens[parser.current].keyword.?) {
+		current := parser.tokens[parser.current]
+		// Either a non-keyword ident token or a type-keyword
+		if
+			(current.kind == .Keyword && !syntax.is_keyword_type(current.keyword.?)) &&
+			current.kind != .Ident
+		{
 			return nil, Parser_Error {
 				kind    = .Incorrect_Type_Expr,
-				message = "expected a built-in or a user-defined type",
-				token   = parser.tokens[parser.current],
+				message = "expected a built-in or a user-defined type after ':'",
+				token   = current,
 			}
 		}
 
-		type := parser.tokens[parser.current]
 		advance(parser)
 
 		value: Maybe(^syntax.Expr)
 		constant := false
-		current := parser.tokens[parser.current].kind
-		if current == .Equal || current == .Colon {
-			if current == .Colon {
+		current = parser.tokens[parser.current]
+		if current.kind == .Equal || current.kind == .Colon {
+			if current.kind == .Colon {
 				constant = true
 			}
 
@@ -262,7 +259,7 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 			name     = name,
 			value    = value,
 			constant = constant,
-			type     = type,
+			type     = current,
 		}
 
 	case:
