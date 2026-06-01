@@ -917,7 +917,7 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 				make_token(.EOF, 3, 4),
 			},
 			should_error = true,
-			error_kind   = .Unexpected_Token,
+			error_kind   = .Incorrect_Type_Expr,
 		},
 		Test {
 			name         = "decl: literal where type expected",
@@ -929,7 +929,7 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 				make_token(.EOF, 5, 6),
 			},
 			should_error = true,
-			error_kind   = .Unexpected_Token,
+			error_kind   = .Incorrect_Type_Expr,
 		},
 		Test {
 			name         = "decl: non-type keyword as type",

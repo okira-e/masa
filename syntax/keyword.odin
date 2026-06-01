@@ -1,6 +1,7 @@
 package syntax
 
 Keyword :: enum u8 {
+	None,
 	If,
 	Else,
 	And,

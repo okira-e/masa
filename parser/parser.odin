@@ -227,17 +227,15 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 
 		current := parser.tokens[parser.current]
 		// Either a non-keyword ident token or a type-keyword
-		if
-			(current.kind == .Keyword && !syntax.is_keyword_type(current.keyword.?)) &&
-			current.kind != .Ident
-		{
+		if (current.kind == .Keyword && !syntax.is_keyword_type(current.keyword.?)) ||
+		   (current.kind != .Keyword && current.kind != .Ident) {
 			return nil, Parser_Error {
 				kind    = .Incorrect_Type_Expr,
 				message = "expected a built-in or a user-defined type after ':'",
 				token   = current,
 			}
 		}
-
+		type := current
 		advance(parser)
 
 		value: Maybe(^syntax.Expr)
@@ -259,7 +257,7 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 			name     = name,
 			value    = value,
 			constant = constant,
-			type     = current,
+			type     = type,
 		}
 
 	case:
