@@ -26,6 +26,7 @@ Type :: union {
 }
 
 Primitive :: enum {
+	None,
 	Number,
 	String,
 	Bool

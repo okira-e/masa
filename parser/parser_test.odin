@@ -937,7 +937,7 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 			input        = []syntax.Token {
 				make_token(.Ident, 0, 1),                // x
 				make_token(.Colon, 2, 3),                // :
-				make_keyword_token(4, 6, .If),           // if
+				make_token(.Keyword, 4, 6, kw = .If),           // if
 				make_token(.Equal, 7, 8),                // =
 				make_token(.Literal, 9, 10),             // 5
 				make_token(.EOF, 10, 11),
@@ -1031,7 +1031,7 @@ test_declarations :: proc(t: ^testing.T) {
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_keyword_token(4, 10, .Number),
+				make_token(.Keyword, 4, 10, kw = .Number),
 				make_token(.Equal, 11, 12),
 				make_token(.Literal, 13, 14),
 				make_token(.EOF, 14, 15),
@@ -1047,7 +1047,7 @@ test_declarations :: proc(t: ^testing.T) {
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_keyword_token(4, 10, .Number),
+				make_token(.Keyword, 4, 10, kw = .Number),
 				make_token(.Colon, 11, 12),
 				make_token(.Literal, 13, 14),
 				make_token(.EOF, 14, 15),
@@ -1063,7 +1063,7 @@ test_declarations :: proc(t: ^testing.T) {
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_keyword_token(4, 10, .Number),
+				make_token(.Keyword, 4, 10, kw = .Number),
 				make_token(.EOF, 10, 11),
 			},
 			constant  = false,
@@ -1077,7 +1077,7 @@ test_declarations :: proc(t: ^testing.T) {
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_keyword_token(4, 8, .Bool),
+				make_token(.Keyword, 4, 8, kw = .Bool),
 				make_token(.Equal, 9, 10),
 				make_token(.Literal, 11, 15),
 				make_token(.EOF, 15, 16),
@@ -1158,25 +1158,14 @@ test_declarations :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-make_token :: proc(kind: syntax.Token_Kind, start: int, end: int) -> syntax.Token {
+make_token :: proc(kind: syntax.Token_Kind, start: int, end: int, kw := syntax.Keyword.None) -> syntax.Token {
 	return syntax.Token {
 		kind = kind,
 		line = 1,
 		lexeme_start = start,
 		lexeme_end = end,
 		column = start,
-	}
-}
-
-@(private = "file")
-make_keyword_token :: proc(start: int, end: int, kw: syntax.Keyword) -> syntax.Token {
-	return syntax.Token {
-		kind = .Keyword,
-		keyword = kw,
-		line = 1,
-		lexeme_start = start,
-		lexeme_end = end,
-		column = start,
+		keyword = kw == .None ? nil : kw,
 	}
 }
 

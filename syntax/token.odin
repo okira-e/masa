@@ -12,6 +12,7 @@ Token :: struct {
 }
 
 Token_Kind :: enum u8 {
+	None,
 	New_Line,
 	Literal,
 	Keyword,
@@ -42,6 +43,7 @@ Token_Kind :: enum u8 {
 }
 
 Literal_Kind :: enum u8 {
+	None,
 	Number,
 	String,
 	Bool,
