@@ -5,8 +5,8 @@ import "core:fmt"
 import "core:strings"
 
 Analyzer :: struct {
-	source: string,
-	env:    ^Scope,
+	source:   string,
+	env:      ^Scope,
 
 	t_number: ^Symbol,
 	t_string: ^Symbol,
@@ -503,22 +503,28 @@ Analyzer_Error_Kind :: enum u8 {
 }
 
 @(private)
-error_hint :: proc(kind: Analyzer_Error_Kind) -> string {
+error_hint :: proc(kind: Analyzer_Error_Kind) -> Maybe(string) {
 	#partial switch kind {
 	case .Variable_Constant:
 		return "declare with ':=' instead of '::' if it needs to change"
+		
 	case .Type_Mismatch_On_Assignment:
 		return "the value's type doesn't match the variable's declared type"
+		
 	case .Type_Mismatch_On_Declaration:
 		return "the value's type doesn't match the declared type"
+		
 	case .Declaration_Type_Missing:
 		return "add a type annotation or an initial value"
+		
 	case .Type_In_Value_Position:
 		return "you may have meant a variable with this name"
+		
 	case .Variable_In_Type_Position:
 		return "you may have meant a type with this name"
 	}
-	return ""
+
+	return nil
 }
 
 // Renders a rustc-style diagnostic. Uses err.token's lexeme span for the
@@ -577,9 +583,9 @@ format_error :: proc(err: Analyzer_Error, source: string, allocator := context.a
 	strings.write_string(&b, " | ")
 	write_repeat(&b, ' ', column - 1)
 	write_repeat(&b, '^', caret_count)
-	if hint != "" {
+	if hint != nil {
 		strings.write_byte(&b, ' ')
-		strings.write_string(&b, hint)
+		strings.write_string(&b, hint.?)
 	}
 	strings.write_byte(&b, '\n')
 

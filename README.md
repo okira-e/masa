@@ -45,4 +45,4 @@ color: Color = match status {
 
 Latest language features supported can be found in [latest.masa](./masa/latest.masa).
 
-| Note: Langauge is in early development and language syntax and features are prone to change.
+| Note: The langauge is in early development and language syntax and features are prone to change.

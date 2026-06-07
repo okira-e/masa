@@ -5,50 +5,38 @@ import "core:fmt"
 import "core:mem"
 import "core:strings"
 
-/*
-
-Parser development guide/rules:
-	- Outer loop doesn't advance
-	- Each rule advances on match
-	- On a match, you can use other rules
-	- Remain simple
-
-*/
-
-/*
-Grammar in BNF notation:
-
-Statements:
-- program          -> ( statement TERMINATOR )* ;
-- statement        -> ident_decl | ident_assignment | if_stmt | block | expr_stmt ;
-- ident_decl       -> IDENT ( ":=" | "::" ) expression
-                    | IDENT ":" TYPE ( ( "=" | ":" ) expression )? ;
-- ident_assignment -> IDENT "=" expression ;
-- if_stmt          -> "if" expression block ( "else" ( if_stmt | block ) )? ;
-- block            -> "{" ( statement TERMINATOR )* "}" ;
-- expr_stmt        -> expression ;
-- TYPE             -> "bool" | "number" | "any" | "string" ;
-
-Expressions:
-- expression -> logic_or ;
-- logic_or   -> logic_and ( "or" logic_and )* ;
-- logic_and  -> equality ( "and" equality )* ;
-- equality   -> comparison ( ( "!=" | "==" ) comparison )* ;
-- comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-- term       -> factor ( ( "-" | "+" ) factor )* ;
-- factor     -> unary ( ( "/" | "*" ) unary )* ;
-- unary      -> ( "!" | "-" ) unary | primary ;
-- primary    -> NUMBER | STRING | IDENT | "(" expression ")" ;
-
-Notes:
-- TERMINATOR is satisfied by NEWLINE, EOF, or a following "}" (end of block).
-- Comments and consecutive newlines between statements are trivia and skipped.
-- IDENT is any identifier token; keywords ("if", "else", "and", "or") don't match.
-- "and"/"or" are lexed as keyword tokens, not operator punctuation.
-- ident_decl mutability: ":=" is mutable, "::" is constant.
-  For typed declarations, the initializer separator picks mutability:
-  "= expr" → mutable, ": expr" → constant. No initializer → bare typed decl.
-*/
+// Grammar in BNF notation:
+// 
+// Statements:
+// - program          -> ( statement TERMINATOR )* ;
+// - statement        -> ident_decl | ident_assignment | if_stmt | block | expr_stmt ;
+// - ident_decl       -> IDENT ( ":=" | "::" ) expression
+//                     | IDENT ":" TYPE ( ( "=" | ":" ) expression )? ;
+// - ident_assignment -> IDENT "=" expression ;
+// - if_stmt          -> "if" expression block ( "else" ( if_stmt | block ) )? ;
+// - block            -> "{" ( statement TERMINATOR )* "}" ;
+// - expr_stmt        -> expression ;
+// - TYPE             -> "bool" | "number" | "any" | "string" ;
+// 
+// Expressions:
+// - expression -> logic_or ;
+// - logic_or   -> logic_and ( "or" logic_and )* ;
+// - logic_and  -> equality ( "and" equality )* ;
+// - equality   -> comparison ( ( "!=" | "==" ) comparison )* ;
+// - comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+// - term       -> factor ( ( "-" | "+" ) factor )* ;
+// - factor     -> unary ( ( "/" | "*" ) unary )* ;
+// - unary      -> ( "!" | "-" ) unary | primary ;
+// - primary    -> NUMBER | STRING | IDENT | "(" expression ")" ;
+// 
+// Notes:
+// - TERMINATOR is satisfied by NEWLINE, EOF, or a following "}" (end of block).
+// - Comments and consecutive newlines between statements are trivia and skipped.
+// - IDENT is any identifier token; keywords ("if", "else", "and", "or") don't match.
+// - "and"/"or" are lexed as keyword tokens, not operator punctuation.
+// - ident_decl mutability: ":=" is mutable, "::" is constant.
+//   For typed declarations, the initializer separator picks mutability:
+//   "= expr" → mutable, ": expr" → constant. No initializer → bare typed decl.
 Parser :: struct {
 	tokens:    []syntax.Token,
 	current:   int,
