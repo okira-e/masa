@@ -1,6 +1,5 @@
 package parser
 
-import "core:fmt"
 import "../syntax"
 import "core:mem"
 
@@ -55,8 +54,8 @@ Parser :: struct {
 }
 
 init :: proc(parser: ^Parser, tokens: []syntax.Token, allocator := context.allocator) {
-	parser.current = 0
-	parser.tokens = tokens
+	parser.current   = 0
+	parser.tokens    = tokens
 	parser.allocator = allocator
 }
 
@@ -220,6 +219,7 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 			name     = name,
 			value    = value,
 			constant = op.kind == .Colon_Colon,
+			type     = nil,
 		}
 
 	case .Colon:
@@ -227,15 +227,15 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 
 		current := parser.tokens[parser.current]
 		// Either a non-keyword ident token or a type-keyword
-		if (current.kind == .Keyword && !syntax.is_keyword_type(current.keyword.?)) ||
-		   (current.kind != .Keyword && current.kind != .Ident) {
+		if current.kind != .Ident {
 			return nil, Parser_Error {
 				kind    = .Incorrect_Type_Expr,
 				message = "expected a built-in or a user-defined type after ':'",
 				token   = current,
 			}
 		}
-		type := current
+
+		type_token := parser.tokens[parser.current]
 		advance(parser)
 
 		value: Maybe(^syntax.Expr)
@@ -257,7 +257,7 @@ parse_ident_decl :: proc(parser: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error))
 			name     = name,
 			value    = value,
 			constant = constant,
-			type     = type,
+			type     = syntax.Type{ token = type_token },
 		}
 
 	case:
@@ -627,7 +627,7 @@ Parser_Error :: struct {
 	message: string,
 }
 
-Parser_Error_Kind :: enum {
+Parser_Error_Kind :: enum u8 {
 	Unexpected_EOF,
 	Empty_Tokens,
 	Missing_EOF,

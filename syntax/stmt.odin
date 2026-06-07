@@ -13,10 +13,10 @@ Expr_Stmt :: struct {
 }
 
 Ident_Decl_Stmt :: struct {
-	name:     Token,
-	value:    Maybe(^Expr),
-	constant: bool,
-	type:     Maybe(Token),
+	name:      Token,
+	value:     Maybe(^Expr),
+	constant:  bool,
+	type:      Maybe(Type),
 }
 
 Ident_Assignment_Stmt :: struct {

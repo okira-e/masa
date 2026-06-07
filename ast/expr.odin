@@ -102,7 +102,6 @@ get_string_for_op :: proc(op: syntax.Token_Kind) -> string {
 	return ""
 }
 
-@(private)
 get_lexeme_from_source :: proc(source: string, start: int, end: int) -> string {
 	assert(start >= 0 && end <= len(source) && start <= end)
 	return source[start:end]

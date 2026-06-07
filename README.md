@@ -15,7 +15,7 @@ System_User :: struct {
     age: number
 }
 
-get_schema :: fn(self: System_User) -> zod.ZodObject {   // Return type is inferable
+get_schema :: fn(user: System_User) -> zod.ZodObject {
     return zod.object({                                  // Direct JavaScript library "unsafe" call
         name: zod.string(),
     })
@@ -24,7 +24,7 @@ get_schema :: fn(self: System_User) -> zod.ZodObject {   // Return type is infer
 main :: fn() {                                           // Could be `async fn`
     fmt.println("Hello Masa!")
 
-    user := System_User {                                // Runtime variables can only be mutable
+    user: System_User = {                                // Runtime variables can only be mutable
         name: "John",
         age: 34,
     }
@@ -32,7 +32,7 @@ main :: fn() {                                           // Could be `async fn`
     user_schema := user.get_schema()                     // `self: System_User` gives us method syntax
                                                          // but only if defined in the same package
 
-    parsed_user: dict = user_schema.parse(user) `dict` is a type alias for `map[string]any`
+    parsed_user: dict = schema.parse(user)               // `dict` is a type alias for `map[string]any`
 }
 
 color: Color = match status {

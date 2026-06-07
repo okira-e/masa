@@ -991,10 +991,11 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 test_declarations :: proc(t: ^testing.T) {
 	Decl_Test :: struct {
 		name:        string,
+		source:      string,
 		input:       []syntax.Token,
 		constant:    bool,
 		has_type:    bool,
-		type_kw:     syntax.Keyword,
+		type_name:   string,
 		has_value:   bool,
 	}
 
@@ -1002,6 +1003,7 @@ test_declarations :: proc(t: ^testing.T) {
 		// x := 5
 		Decl_Test {
 			name = "untyped mutable",
+			source = "x := 5",
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon_Equal, 2, 4),
@@ -1015,6 +1017,7 @@ test_declarations :: proc(t: ^testing.T) {
 		// x :: 5
 		Decl_Test {
 			name = "untyped constant",
+			source = "x :: 5",
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon_Colon, 2, 4),
@@ -1028,63 +1031,101 @@ test_declarations :: proc(t: ^testing.T) {
 		// x : number = 5
 		Decl_Test {
 			name = "typed mutable with value",
+			source = "x : number = 5",
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_token(.Keyword, 4, 10, kw = .Number),
+				make_token(.Ident, 4, 10),
 				make_token(.Equal, 11, 12),
 				make_token(.Literal, 13, 14),
 				make_token(.EOF, 14, 15),
 			},
 			constant  = false,
 			has_type  = true,
-			type_kw   = .Number,
+			type_name = "number",
 			has_value = true,
 		},
 		// x : number : 5
 		Decl_Test {
 			name = "typed constant with value",
+			source = "x : number : 5",
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_token(.Keyword, 4, 10, kw = .Number),
+				make_token(.Ident, 4, 10),
 				make_token(.Colon, 11, 12),
 				make_token(.Literal, 13, 14),
 				make_token(.EOF, 14, 15),
 			},
 			constant  = true,
 			has_type  = true,
-			type_kw   = .Number,
+			type_name = "number",
 			has_value = true,
 		},
 		// x : number
 		Decl_Test {
 			name = "typed bare (no value)",
+			source = "x : number",
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_token(.Keyword, 4, 10, kw = .Number),
+				make_token(.Ident, 4, 10),
 				make_token(.EOF, 10, 11),
 			},
 			constant  = false,
 			has_type  = true,
-			type_kw   = .Number,
+			type_name = "number",
 			has_value = false,
 		},
-		// y : bool = true (different type keyword)
+		// y : bool = true
 		Decl_Test {
 			name = "typed mutable bool",
+			source = "y : bool = true",
 			input = []syntax.Token {
 				make_token(.Ident, 0, 1),
 				make_token(.Colon, 2, 3),
-				make_token(.Keyword, 4, 8, kw = .Bool),
+				make_token(.Ident, 4, 8),
 				make_token(.Equal, 9, 10),
 				make_token(.Literal, 11, 15),
 				make_token(.EOF, 15, 16),
 			},
 			constant  = false,
 			has_type  = true,
-			type_kw   = .Bool,
+			type_name = "bool",
+			has_value = true,
+		},
+		// x : string = "hi"
+		Decl_Test {
+			name = "typed mutable string",
+			source = `x : string = "hi"`,
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon, 2, 3),
+				make_token(.Ident, 4, 10),
+				make_token(.Equal, 11, 12),
+				make_token(.Literal, 13, 17),
+				make_token(.EOF, 17, 18),
+			},
+			constant  = false,
+			has_type  = true,
+			type_name = "string",
+			has_value = true,
+		},
+		// x : Foo = 5 (user-defined type identifier)
+		Decl_Test {
+			name = "typed mutable user-defined type",
+			source = "x : Foo = 5",
+			input = []syntax.Token {
+				make_token(.Ident, 0, 1),
+				make_token(.Colon, 2, 3),
+				make_token(.Ident, 4, 7),
+				make_token(.Equal, 8, 9),
+				make_token(.Literal, 10, 11),
+				make_token(.EOF, 11, 12),
+			},
+			constant  = false,
+			has_type  = true,
+			type_name = "Foo",
 			has_value = true,
 		},
 	}
@@ -1124,24 +1165,24 @@ test_declarations :: proc(t: ^testing.T) {
 			test.constant,
 		)
 
-		type_tok, type_ok := decl.type.?
+		decl_type, has_type := decl.type.?
 		testing.expectf(
 			t,
-			type_ok == test.has_type,
+			has_type == test.has_type,
 			"%s: has_type=%v, want %v",
 			test.name,
-			type_ok,
+			has_type,
 			test.has_type,
 		)
-		if test.has_type && type_ok {
-			kw, _ := type_tok.keyword.?
+		if test.has_type {
+			got := test.source[decl_type.token.lexeme_start:decl_type.token.lexeme_end]
 			testing.expectf(
 				t,
-				kw == test.type_kw,
-				"%s: type keyword=%v, want %v",
+				got == test.type_name,
+				"%s: type lexeme=%q, want %q",
 				test.name,
-				kw,
-				test.type_kw,
+				got,
+				test.type_name,
 			)
 		}
 
@@ -1158,14 +1199,14 @@ test_declarations :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-make_token :: proc(kind: syntax.Token_Kind, start: int, end: int, kw := syntax.Keyword.None) -> syntax.Token {
+make_token :: proc(kind: syntax.Token_Kind, start: int, end: int, kw: Maybe(syntax.Keyword) = nil) -> syntax.Token {
 	return syntax.Token {
 		kind = kind,
 		line = 1,
 		lexeme_start = start,
 		lexeme_end = end,
 		column = start,
-		keyword = kw == .None ? nil : kw,
+		keyword = kw,
 	}
 }
 
