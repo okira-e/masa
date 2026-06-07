@@ -458,6 +458,28 @@ test_lexer_lexeme_ranges :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_lexer_unrecognized_token :: proc(t: ^testing.T) {
+	input := "&"
+
+	l := Lexer{}
+	init(&l)
+	tokens, err := scan(&l, input)
+	defer delete(tokens)
+
+	if err == nil {
+		print_tokens(input, tokens)
+		testing.expectf(t, false, "expected error %v for unrecognized token", Lexer_Error_Kind.Unrecognized_Token)
+		testing.fail_now(t)
+	}
+
+	if err.?.kind != .Unrecognized_Token {
+		print_tokens(input, tokens)
+		testing.expectf(t, false, "expected error %v for unrecognized token", Lexer_Error_Kind.Unrecognized_Token)
+		testing.fail_now(t)
+	}
+}
+
+@(test)
 test_lexer_empty_input :: proc(t: ^testing.T) {
 	input := ""
 

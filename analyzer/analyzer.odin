@@ -1,6 +1,8 @@
 package analyzer
 
 import "../syntax"
+import "core:fmt"
+import "core:strings"
 
 Analyzer :: struct {
 	source: string,
@@ -244,10 +246,17 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> (^Symbol, Maybe(Analyzer
 		lit_kind, ok := v.token.literal_kind.?
 		assert(ok)
 		switch lit_kind {
-		case .Number: return a.t_number, nil
-		case .String: return a.t_string, nil
-		case .Bool:   return a.t_bool,   nil
-		case .Nil:    return nil, nil
+		case .Number:
+			return a.t_number, nil
+			
+		case .String:
+			return a.t_string, nil
+			
+		case .Bool:
+			return a.t_bool,   nil
+			
+		case .Nil:
+			return nil, nil
 		}
 
 	case syntax.Unary_Expr:
@@ -318,6 +327,7 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 				message = "arithmetic operator requires numbers",
 			}
 		}
+
 		return a.t_number, nil
 
 	case .Greater, .Greater_Equal, .Less, .Less_Equal:
@@ -328,6 +338,7 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 				message = "comparison operator requires numbers",
 			}
 		}
+
 		return a.t_bool, nil
 
 	case .Equal_Equal, .Bang_Equal:
@@ -338,6 +349,7 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 				message = "equality requires operands of the same type",
 			}
 		}
+
 		return a.t_bool, nil
 	}
 
@@ -488,4 +500,93 @@ Analyzer_Error_Kind :: enum u8 {
 	Variable_In_Type_Position,
 	Operator_Type_Mismatch,
 	Condition_Not_Bool,
+}
+
+@(private)
+error_hint :: proc(kind: Analyzer_Error_Kind) -> string {
+	#partial switch kind {
+	case .Variable_Constant:
+		return "declare with ':=' instead of '::' if it needs to change"
+	case .Type_Mismatch_On_Assignment:
+		return "the value's type doesn't match the variable's declared type"
+	case .Type_Mismatch_On_Declaration:
+		return "the value's type doesn't match the declared type"
+	case .Declaration_Type_Missing:
+		return "add a type annotation or an initial value"
+	case .Type_In_Value_Position:
+		return "you may have meant a variable with this name"
+	case .Variable_In_Type_Position:
+		return "you may have meant a type with this name"
+	}
+	return ""
+}
+
+// Renders a rustc-style diagnostic. Uses err.token's lexeme span for the
+// source location and err.message as the headline.
+format_error :: proc(err: Analyzer_Error, source: string, allocator := context.allocator) -> string {
+	start := clamp(err.token.lexeme_start, 0, len(source))
+	end   := clamp(err.token.lexeme_end,   start, len(source))
+
+	line_start := 0
+	for i := start - 1; i >= 0; i -= 1 {
+		if source[i] == '\n' {
+			line_start = i + 1
+			break
+		}
+	}
+
+	line_end := len(source)
+	for i := start; i < len(source); i += 1 {
+		if source[i] == '\n' {
+			line_end = i
+			break
+		}
+	}
+
+	line_no := 1
+	for i := 0; i < start; i += 1 {
+		if source[i] == '\n' do line_no += 1
+	}
+
+	column := start - line_start + 1
+	span_end := min(end, line_end)
+	caret_count := max(span_end - start, 1)
+
+	line_text := source[line_start:line_end]
+	hint := error_hint(err.kind)
+
+	b: strings.Builder
+	strings.builder_init(&b, allocator)
+
+	fmt.sbprintf(&b, "error: %s\n", err.message)
+	fmt.sbprintf(&b, "  --> line %d, column %d\n", line_no, column)
+
+	gutter_str := fmt.tprintf("%d", line_no)
+	gutter := len(gutter_str)
+
+	write_repeat(&b, ' ', gutter + 1)
+	strings.write_string(&b, " |\n")
+
+	strings.write_byte(&b, ' ')
+	strings.write_string(&b, gutter_str)
+	strings.write_string(&b, " | ")
+	strings.write_string(&b, line_text)
+	strings.write_byte(&b, '\n')
+
+	write_repeat(&b, ' ', gutter + 1)
+	strings.write_string(&b, " | ")
+	write_repeat(&b, ' ', column - 1)
+	write_repeat(&b, '^', caret_count)
+	if hint != "" {
+		strings.write_byte(&b, ' ')
+		strings.write_string(&b, hint)
+	}
+	strings.write_byte(&b, '\n')
+
+	return strings.to_string(b)
+}
+
+@(private)
+write_repeat :: proc(b: ^strings.Builder, c: byte, n: int) {
+	for _ in 0..<n do strings.write_byte(b, c)
 }

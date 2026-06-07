@@ -53,10 +53,10 @@ main :: proc() {
 	tokens, lexing_err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
 	if lexing_err != nil {
-		fmt.fprintf(os.stderr, "Error while scanning: %v\n", lexing_err)
+		fmt.fprint(os.stderr, lexer.format_error(lexing_err.?, transmute(string)source))
 		os.exit(1)
 	}
-	// for it in tokens do fmt.println("TOK:", it.kind)
+	// lexer.print_tokens(transmute(string)source, tokens)
 
 	// Parsing
 
@@ -65,7 +65,7 @@ main :: proc() {
 	stmts, parser_err := parser.parse(&p)
 	defer delete(stmts)
 	if parser_err != nil {
-		fmt.fprintf(os.stderr, "Error while parsing: %v\n", parser_err)
+		fmt.fprint(os.stderr, parser.format_error(parser_err.?, transmute(string)source))
 		os.exit(1)
 	}
 	if app_flags.print_ast {
@@ -73,14 +73,14 @@ main :: proc() {
 	}
 	// for it in stmts do fmt.println("STMT:", it)
 
-	// Static analysis
+	// Lexical analysis
 
 	a: analyzer.Analyzer
 	analyzer.init(&a, transmute(string)source)
 	defer analyzer.destroy(&a)
 	analyzer_err := analyzer.analyze(&a, stmts[:])
 	if analyzer_err != nil {
-		fmt.fprintf(os.stderr, "Error while analyzing: %v\n", analyzer_err)
+		fmt.fprint(os.stderr, analyzer.format_error(analyzer_err.?, transmute(string)source))
 		os.exit(1)
 	}
 

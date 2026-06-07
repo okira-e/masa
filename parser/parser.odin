@@ -1,7 +1,9 @@
 package parser
 
 import "../syntax"
+import "core:fmt"
 import "core:mem"
+import "core:strings"
 
 /*
 
@@ -636,4 +638,98 @@ Parser_Error_Kind :: enum u8 {
 	Else_With_No_If,
 	Missing_Terminator,
 	Incorrect_Type_Expr,
+}
+
+@(private)
+error_hint :: proc(kind: Parser_Error_Kind) -> Maybe(string) {
+	#partial switch kind {
+	case .Unexpected_EOF:
+		return "input ended before the statement was complete"
+		
+	case .UnclosedParen:
+		return "add a matching ')'"
+		
+	case .Incorrect_Type_Expr:
+		return "expected a built-in or user-defined type name"
+		
+	case .Else_With_No_If:
+		return "'else' must follow '}' on the same line"
+		
+	case .Missing_Terminator:
+		return "expected newline, '}', or end of input"
+	}
+
+	return nil
+}
+
+format_error :: proc(err: Parser_Error, source: string, allocator := context.allocator) -> string {
+	if err.kind == .Empty_Tokens || err.kind == .Missing_EOF {
+		return fmt.aprintf("error: %s\n", err.message, allocator = allocator)
+	}
+
+	start := clamp(err.token.lexeme_start, 0, len(source))
+	end   := clamp(err.token.lexeme_end,   start, len(source))
+
+	line_start := 0
+	for i := start - 1; i >= 0; i -= 1 {
+		if source[i] == '\n' {
+			line_start = i + 1
+			break
+		}
+	}
+
+	line_end := len(source)
+	for i := start; i < len(source); i += 1 {
+		if source[i] == '\n' {
+			line_end = i
+			break
+		}
+	}
+
+	line_no := 1
+	for i := 0; i < start; i += 1 {
+		if source[i] == '\n' do line_no += 1
+	}
+
+	column := start - line_start + 1
+	span_end := min(end, line_end)
+	caret_count := max(span_end - start, 1)
+
+	line_text := source[line_start:line_end]
+	hint := error_hint(err.kind)
+
+	b: strings.Builder
+	strings.builder_init(&b, allocator)
+
+	fmt.sbprintf(&b, "error: %s\n", err.message)
+	fmt.sbprintf(&b, "  --> line %d, column %d\n", line_no, column)
+
+	gutter_str := fmt.tprintf("%d", line_no)
+	gutter := len(gutter_str)
+
+	write_repeat(&b, ' ', gutter + 1)
+	strings.write_string(&b, " |\n")
+
+	strings.write_byte(&b, ' ')
+	strings.write_string(&b, gutter_str)
+	strings.write_string(&b, " | ")
+	strings.write_string(&b, line_text)
+	strings.write_byte(&b, '\n')
+
+	write_repeat(&b, ' ', gutter + 1)
+	strings.write_string(&b, " | ")
+	write_repeat(&b, ' ', column - 1)
+	write_repeat(&b, '^', caret_count)
+	if hint != nil {
+		strings.write_byte(&b, ' ')
+		strings.write_string(&b, hint.?)
+	}
+	strings.write_byte(&b, '\n')
+
+	return strings.to_string(b) // @Allocation
+}
+
+@(private)
+write_repeat :: proc(b: ^strings.Builder, c: byte, n: int) {
+	for _ in 0..<n do strings.write_byte(b, c)
 }
