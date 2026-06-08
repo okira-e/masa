@@ -1,4 +1,6 @@
-x: number = 5
+A :: number
+
+x: A = 5
 
 {
 	x = 1

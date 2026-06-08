@@ -23,8 +23,10 @@ transpile :: proc(t: ^Transpiler, stmts: []^syntax.Stmt) -> string {
 	emit_headers(t);
 
 	for stmt in stmts {
-		emit_stmt(t, stmt)
-		strings.write_byte(&t.output, '\n')
+		written_anything := emit_stmt(t, stmt)
+		if written_anything {
+			strings.write_byte(&t.output, '\n')
+		}
 	}
 
 	return strings.to_string(t.output)
@@ -34,7 +36,8 @@ emit_headers :: proc(t: ^Transpiler) {
 	strings.write_string(&t.output, "\"use strict\";\n\n");
 }
 
-emit_stmt :: proc(t: ^Transpiler, stmt: ^syntax.Stmt, do_indent := true) {
+// Returns if it actually wrote something or not
+emit_stmt :: proc(t: ^Transpiler, stmt: ^syntax.Stmt, do_indent := true) -> bool {
 	switch s in stmt {
 	case syntax.Expr_Stmt:
 		if do_indent do write_indent(t)
@@ -42,6 +45,10 @@ emit_stmt :: proc(t: ^Transpiler, stmt: ^syntax.Stmt, do_indent := true) {
 		strings.write_byte(&t.output, ';')
 
 	case syntax.Ident_Decl_Stmt:
+		if s.decl_kind == .Type_Alias {
+			return false
+		}
+
 		if do_indent do write_indent(t)
 		emit_ident_declaration(t, s)
 		strings.write_byte(&t.output, ';')
@@ -59,6 +66,8 @@ emit_stmt :: proc(t: ^Transpiler, stmt: ^syntax.Stmt, do_indent := true) {
 		if do_indent do write_indent(t)
 		emit_block(t, s)
 	}
+
+	return true
 }
 
 emit_if :: proc(t: ^Transpiler, stmt: syntax.If_Stmt) {

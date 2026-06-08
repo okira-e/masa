@@ -72,13 +72,13 @@ analyze :: proc(a: ^Analyzer, stmts: []^syntax.Stmt) -> Maybe(Analyzer_Error) {
 }
 
 check_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Error) {
-	switch stmt in stmt {
+	switch &stmt in stmt {
 	case syntax.Expr_Stmt:
 		_, err := check_expr(a, stmt.expr)
 		return err
 
 	case syntax.Ident_Decl_Stmt:
-		return check_ident_decl(a, stmt)
+		return check_ident_decl(a, &stmt)
 
 	case syntax.Ident_Assignment_Stmt:
 		return check_ident_assignment(a, stmt)
@@ -93,7 +93,7 @@ check_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Error) {
 	return nil
 }
 
-check_ident_decl :: proc(a: ^Analyzer, stmt: syntax.Ident_Decl_Stmt) -> Maybe(Analyzer_Error) {
+check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(Analyzer_Error) {
 	new_name := a.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
 
 	// 
@@ -114,7 +114,10 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: syntax.Ident_Decl_Stmt) -> Maybe(An
 								message = "name already declared in this scope",
 							}
 						}
+
+						stmt.decl_kind = .Type_Alias
 						a.env.symbols[new_name] = sym
+
 						return nil
 					}
 				}
@@ -173,6 +176,8 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: syntax.Ident_Decl_Stmt) -> Maybe(An
 	})
 
 	append(&a.env.owned_symbols, sym)
+
+	stmt.decl_kind = .Value
 	a.env.symbols[new_name] = sym
 
 	return nil

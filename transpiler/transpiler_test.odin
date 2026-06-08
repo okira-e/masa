@@ -21,6 +21,11 @@ test_const_decl :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_type_alias_decl :: proc(t: ^testing.T) {
+	expect_js(t, "x :: string", "")
+}
+
+@(test)
 test_assignment :: proc(t: ^testing.T) {
 	expect_js(t, "x := 5\nx = 10", "let x = 5;\nx = 10;\n")
 }
