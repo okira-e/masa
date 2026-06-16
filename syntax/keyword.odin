@@ -2,6 +2,8 @@ package syntax
 
 Keyword :: enum u8 {
 	If,
+	Fn,
+	Async,
 	Else,
 	And,
 	Or,
@@ -14,6 +16,8 @@ Keyword_Entry :: struct {
 
 keywords := []Keyword_Entry {
 	{"if",     .If},
+	{"fn",     .Fn},
+	{"async",  .Async},
 	{"else",   .Else},
 	{"and",    .And},
 	{"or",     .Or},

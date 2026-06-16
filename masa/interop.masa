@@ -1,0 +1,61 @@
+```main.masa
+package main
+
+import "core:os"
+
+// "axios" is searched in node_modules by default but "axios.d.masa" is search locally since it is set
+import "jslib:axios; axios.d.masa"
+
+main :: async fn() {
+	todo := axios.get("https://jsonplaceholder/todos/1", nil).await catch err {
+		axios_err := err.(axios.Axios_Error) // Cast the error since you know it
+
+		eprintln(axios_err.message())
+		os.exit(1)
+	}
+}
+
+```axios.d.masa
+
+Method :: enum #uppercase { // Enums transpile to string values and not integers in masa
+	Get
+	Delete
+	Head
+	Options
+	Post
+	Put
+	Patch
+	Purge
+	Link
+	Unlink
+	Query
+}
+
+TransformRequest :: union {
+	AxiosRequestTransformer
+	[]AxiosRequestTransformer
+}
+
+RequestConfig :: struct {
+	#optional
+	url: string?
+	
+	#optional
+	method: Method?
+	
+	#optional
+	baseURL: string?
+	
+	#optional
+	allowAbsoluteUrls: boolean?
+	
+	#optional
+	transformRequest: TransformRequest[]?
+	// ...
+}
+
+AxiosError :: struct { // ... }
+
+get :: async fn(path: string, #optional config: RequestConfig?) -> any #throws
+
+```

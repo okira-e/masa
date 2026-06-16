@@ -27,6 +27,7 @@ Scope :: struct {
 Symbol :: union {
 	Var_Symbol,
 	Type_Symbol,
+	Fn_Symbol
 }
 
 Var_Symbol :: struct {
@@ -38,6 +39,14 @@ Var_Symbol :: struct {
 Type_Symbol :: struct {
 	name:       string,
 	decl_token: syntax.Token,
+}
+
+Fn_Symbol :: struct {
+	name: string,
+	return_type: Maybe([dynamic]syntax.Token),
+	args:        [dynamic]syntax.Fn_Arg,
+	async:       bool,
+	stub:        bool,
 }
 
 init :: proc(a: ^Analyzer, source: string) {
@@ -80,6 +89,9 @@ check_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Error) {
 	case syntax.Ident_Decl_Stmt:
 		return check_ident_decl(a, &stmt)
 
+	case syntax.Fn_Decl_Stmt:
+		return check_fn_decl(a, &stmt)
+
 	case syntax.Ident_Assignment_Stmt:
 		return check_ident_assignment(a, stmt)
 
@@ -94,7 +106,7 @@ check_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Stmt) -> Maybe(Analyzer_Error) {
 }
 
 check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(Analyzer_Error) {
-	new_name := a.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
+	name := a.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
 
 	// 
 	// Handle type declarations `A :: B` where the rhs type is a pre-defined ident.
@@ -103,22 +115,24 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 
 	if stmt.constant && stmt.type == nil {
 		if val, ok := stmt.value.?; ok {
-			if ident_expr, ok := val.expr.(syntax.Ident_Expr); ok {
-				rhs_lexeme := a.source[ident_expr.token.lexeme_start:ident_expr.token.lexeme_end]
-				if sym, found := resolve_ident(a, rhs_lexeme); found {
-					if _, is_type := sym^.(Type_Symbol); is_type {
-						if _, dup := a.env.symbols[new_name]; dup { // dupe in this scope since we allow shadowing
-							return Analyzer_Error {
-								kind    = .Variable_Redeclaration,
-								token   = stmt.name,
-								message = "name already declared in this scope",
+			if expr_stmt, ok := val^.(syntax.Expr_Stmt); ok {
+				if ident_expr, ok := expr_stmt.expr.expr.(syntax.Ident_Expr); ok {
+					rhs_lexeme := a.source[ident_expr.token.lexeme_start:ident_expr.token.lexeme_end]
+					if sym, found := resolve_ident(a, rhs_lexeme); found {
+						if _, is_type := sym.(Type_Symbol); is_type {
+							if _, dup := a.env.symbols[name]; dup { // dupe in this scope since we allow shadowing
+								return Analyzer_Error {
+									kind    = .Variable_Redeclaration,
+									token   = stmt.name,
+									message = "name already declared in this scope",
+								}
 							}
+
+							stmt.decl_kind = .Type_Alias
+							a.env.symbols[name] = sym // type symbol
+
+							return nil
 						}
-
-						stmt.decl_kind = .Type_Alias
-						a.env.symbols[new_name] = sym
-
-						return nil
 					}
 				}
 			}
@@ -138,7 +152,9 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 
 	value_type: ^Symbol = nil
 	if val, has := stmt.value.?; has {
-		t, err := check_expr(a, val)
+		val, ok := val^.(syntax.Expr_Stmt)
+		assert(ok)
+		t, err := check_expr(a, val.expr)
 		if err != nil do return err
 		value_type = t
 	}
@@ -160,7 +176,7 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 	}
 
 	// Since shadowing is allowed, check only the current scope for duplicates
-	if _, dup := a.env.symbols[new_name]; dup {
+	if _, dup := a.env.symbols[name]; dup {
 		return Analyzer_Error {
 			kind    = .Variable_Redeclaration,
 			token   = stmt.name,
@@ -169,16 +185,103 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 	}
 
 	final_type := declared_type != nil ? declared_type : value_type
-	sym := make_symbol(Var_Symbol {
+	sym := new_symbol(Var_Symbol {
 		constant   = stmt.constant,
 		decl_token = stmt.name,
 		type       = final_type,
 	})
+	stmt.decl_kind = .Value
 
 	append(&a.env.owned_symbols, sym)
 
-	stmt.decl_kind = .Value
-	a.env.symbols[new_name] = sym
+	a.env.symbols[name] = sym
+
+	return nil
+}
+
+check_fn_decl :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(Analyzer_Error) {
+	name := a.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
+	if _, exists := a.env.symbols[name]; exists {
+		return Analyzer_Error{
+			kind    = .Duplicate_Fn_Definition,
+			token   = stmt.name,
+			message = "function already defined"
+		}
+	}
+
+	// type check arguments
+	seen := make(map[string]bool)
+	defer delete(seen)
+	for arg in stmt.args {
+		// exists
+		sym, ok := resolve_ident(a, a.source[arg.type.lexeme_start:arg.type.lexeme_end])
+		if !ok {
+			return Analyzer_Error {
+				kind    = .Undefined_Type,
+				token   = arg.type,
+				message = "found undefined type for argument",
+			}
+		}
+		
+		// is type
+		_, ok = sym.(Type_Symbol)
+		if !ok {
+			return Analyzer_Error {
+				kind    = .Value_Used_As_Type,
+				token   = arg.type,
+				message = "Found a value when expecting a type in argument",
+			}
+		}
+		
+		// duplicate
+		arg_name := a.source[arg.name.lexeme_start:arg.name.lexeme_end]
+		if seen[arg_name] {
+			return Analyzer_Error{
+				kind    = .Duplicate_Fn_Argument_Definition,
+				token   = arg.name,
+				message = "duplicate argument name found"
+			}
+		}
+		seen[arg_name] = true
+	}
+
+	// type check returns
+	if returns, ok := stmt.return_type.?; ok {
+		for return_tok in returns {
+			// exists
+			sym, ok := resolve_ident(a, a.source[return_tok.lexeme_start:return_tok.lexeme_end])
+			if !ok {
+				return Analyzer_Error {
+					kind    = .Undefined_Type,
+					token   = return_tok,
+					message = "found undefined type in return",
+				}
+			}
+
+			// is type
+			_, ok = sym.(Type_Symbol)
+			if !ok {
+				return Analyzer_Error {
+					kind    = .Value_Used_As_Type,
+					token   = return_tok,
+					message = "Found a value when expecting a type in return",
+				}
+			}
+		}
+	}
+
+	// TODO: Do a check for if we use await inside this function if its async
+	
+	sym := new_symbol(Fn_Symbol {
+		name        = name,
+		return_type = stmt.return_type,
+		args        = stmt.args,
+		async       = stmt.async,
+		stub        = stmt.stub,
+	})
+
+	append(&a.env.owned_symbols, sym)
+	a.env.symbols[name] = sym
 
 	return nil
 }
@@ -453,7 +556,7 @@ first_token :: proc(expr: ^syntax.Expr) -> syntax.Token {
 	return {}
 }
 
-make_symbol :: proc(value: Symbol) -> ^Symbol {
+new_symbol :: proc(value: Symbol) -> ^Symbol {
 	s := new(Symbol)
 	s^ = value
 	return s
@@ -481,7 +584,7 @@ free_scope :: proc(s: ^Scope) {
 }
 
 declare_type :: proc(scope: ^Scope, name: string) -> ^Symbol {
-	s := make_symbol(Type_Symbol{ name = name })
+	s := new_symbol(Type_Symbol{ name = name })
 	append(&scope.owned_symbols, s)
 	scope.symbols[name] = s
 	return s
@@ -496,7 +599,10 @@ Analyzer_Error :: struct {
 Analyzer_Error_Kind :: enum u8 {
 	Undefined_Variable,
 	Undefined_Type,
+	Value_Used_As_Type,
 	Variable_Redeclaration,
+	Duplicate_Fn_Definition,
+	Duplicate_Fn_Argument_Definition,
 	Variable_Constant,
 	Type_Mismatch_On_Assignment,
 	Type_Mismatch_On_Declaration,
