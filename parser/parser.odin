@@ -91,7 +91,7 @@ parse_stmt :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	current := current(p)
 	#partial switch current.kind {
 	case .Ident:
-		next, ok := peek_next(p)
+		next, ok := next(p)
 		if ok {
 			#partial switch next.kind {
 			case .Colon_Equal, .Colon_Colon, .Colon:
@@ -335,6 +335,18 @@ parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, async: bool) -> (^syn
 	
 	advance(p) // consume ')'
 
+	// Return(s)
+	return_type: Maybe([dynamic]syntax.Token)
+	if next, ok := next(p); ok && current(p).kind == .Minus && next.kind == .Greater {
+		advance(p) // consume '-'
+		advance(p) // consume '>'
+		skip_trivia(p)
+
+		returns: Maybe(Parser_Error)
+		return_type, returns = parse_returns(p)
+		if returns != nil do return nil, returns
+	}
+
 	block_stmt: Maybe(^syntax.Block_Stmt)
 	if current(p).kind == .Left_Brace {
 		value_stmt, err := parse_block(p)
@@ -351,10 +363,68 @@ parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, async: bool) -> (^syn
 		stub  = block_stmt == nil ? true : false,
 		async = async,
 		args  = args,
-		// TODO: Do returns
+		return_type = return_type,
 	}
 
 	return stmt, nil
+}
+
+// Parses a function's return type(s): either a single bare type `string`, or a
+// parenthesized, comma-separated list `(string, number)`. Parentheses are
+// required for more than one return value.
+parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Token), Maybe(Parser_Error)) {
+	returns := make([dynamic]syntax.Token, allocator = p.allocator)
+
+	// Single, unparenthesized return type
+	if current(p).kind != .Left_Paren {
+		if current(p).kind != .Ident {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected a return type after '->'",
+				token   = current(p),
+			}
+		}
+		append(&returns, current(p))
+		advance(p) // the return type
+		return returns, nil
+	}
+
+	// Parenthesized list of return types
+	advance(p) // consume '('
+	for {
+		skip_trivia(p)
+		if current(p).kind == .Right_Paren {
+			break
+		}
+
+		if current(p).kind != .Ident {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected a return type inside '( )'",
+				token   = current(p),
+			}
+		}
+		append(&returns, current(p))
+		advance(p) // the return type
+
+		skip_trivia(p)
+		if current(p).kind != .Comma {
+			break
+		}
+		advance(p) // ','
+	}
+
+	skip_trivia(p)
+	if current(p).kind != .Right_Paren {
+		return nil, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected a ')' to end function return types",
+			token   = current(p),
+		}
+	}
+	advance(p) // consume ')'
+
+	return returns, nil
 }
 
 parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.Fn_Arg, Maybe(Parser_Error)) {
@@ -720,7 +790,7 @@ advance :: proc(p: ^Parser) -> (syntax.Token, bool) {
 	}
 }
 
-peek_next :: proc(p: ^Parser) -> (syntax.Token, bool) {
+next :: proc(p: ^Parser) -> (syntax.Token, bool) {
 	if p.current >= len(p.tokens) - 1 {
 		return {}, false
 	}

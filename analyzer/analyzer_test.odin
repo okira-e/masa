@@ -124,6 +124,14 @@ test_typed_constant_cannot_be_reassigned :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_typed_constant_cannot_be_reassigned_in_block :: proc(t: ^testing.T) {
+	err := check("x : number : 5\n{ x = 10 }")
+	e, ok := err.?
+	testing.expect(t, ok)
+	testing.expectf(t, e.kind == .Variable_Constant, "got %v", e.kind)
+}
+
+@(test)
 test_typed_mutable_can_be_reassigned :: proc(t: ^testing.T) {
 	err := check("x : number = 5\nx = 10")
 	testing.expectf(t, err == nil, "unexpected error: %v", err)
