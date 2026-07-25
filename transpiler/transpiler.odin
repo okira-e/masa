@@ -1,6 +1,5 @@
 package transpiler
 
-import "core:fmt"
 import "../syntax"
 import "core:strings"
 
@@ -20,7 +19,7 @@ destroy :: proc(t: ^Transpiler) {
 	strings.builder_destroy(&t.output_builder)
 }
 
-transpile :: proc(t: ^Transpiler, stmts: []^syntax.Stmt) -> string {
+transpile :: proc(t: ^Transpiler, stmts: []syntax.Stmt) -> string {
 	emit_headers(t);
 
 	for stmt in stmts {
@@ -38,44 +37,64 @@ emit_headers :: proc(t: ^Transpiler) {
 }
 
 // Returns if it actually wrote something or not
-emit_stmt :: proc(t: ^Transpiler, stmt: ^syntax.Stmt, do_indent := true) -> bool {
-	switch &s in stmt {
-	case syntax.Expr_Stmt:
+emit_stmt :: proc(t: ^Transpiler, stmt: syntax.Stmt, do_indent := true) -> bool {
+	switch s in stmt {
+	case ^syntax.Expr_Stmt:
 		if do_indent do write_indent(t)
 		emit_expr(t, s.expr)
 		strings.write_byte(&t.output_builder, ';')
 
-	case syntax.Ident_Decl_Stmt:
+	case ^syntax.Ident_Decl_Stmt:
 		if s.decl_kind == .Type_Alias {
 			return false
 		}
 
 		if do_indent do write_indent(t)
-		emit_ident_declaration(t, &s)
+		emit_ident_declaration(t, s)
 		strings.write_byte(&t.output_builder, ';')
 
-	case syntax.Fn_Decl_Stmt:
+	case ^syntax.Fn_Decl_Stmt:
 		if do_indent do write_indent(t)
 		emit_fn_declaration(t, s)
 
-	case syntax.Ident_Assignment_Stmt:
+	case ^syntax.Fn_Call_Stmt:
+		// nocheckin: do calls
+
+	case ^syntax.Ident_Assignment_Stmt:
 		if do_indent do write_indent(t)
-		emit_ident_assignment(t, &s)
+		emit_ident_assignment(t, s)
 		strings.write_byte(&t.output_builder, ';')
 
-	case syntax.If_Stmt:
+	case ^syntax.If_Stmt:
 		if do_indent do write_indent(t)
 		emit_if(t, s)
 
-	case syntax.Block_Stmt:
+	case ^syntax.Block_Stmt:
 		if do_indent do write_indent(t)
-		emit_block(t, &s)
+		emit_block(t, s)
+
+	case ^syntax.Return_Stmt:
+		if do_indent do write_indent(t)
+		strings.write_string(&t.output_builder, "return")
+		// Multi-value returns are emitted as a JS array.
+		if len(s.exprs) == 1 {
+			strings.write_byte(&t.output_builder, ' ')
+			emit_expr(t, s.exprs[0])
+		} else if len(s.exprs) > 1 {
+			strings.write_string(&t.output_builder, " [")
+			for e, i in s.exprs {
+				if i != 0 do strings.write_string(&t.output_builder, ", ")
+				emit_expr(t, e)
+			}
+			strings.write_byte(&t.output_builder, ']')
+		}
+		strings.write_byte(&t.output_builder, ';')
 	}
 
 	return true
 }
 
-emit_if :: proc(t: ^Transpiler, stmt: syntax.If_Stmt) {
+emit_if :: proc(t: ^Transpiler, stmt: ^syntax.If_Stmt) {
 	strings.write_string(&t.output_builder, "if (")
 	emit_expr(t, stmt.condition)
 	strings.write_string(&t.output_builder, ") ")
@@ -88,48 +107,66 @@ emit_if :: proc(t: ^Transpiler, stmt: syntax.If_Stmt) {
 
 emit_ident_declaration :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Decl_Stmt) {
 	strings.write_string(&t.output_builder, stmt.constant ? "const " : "let ")
-	emit_ident_token(t, stmt.name)
-
+	values: [dynamic]^syntax.Expr
+	has_values := false
 	if stmt_val, ok := stmt.value.?; ok {
-		val, ok := stmt_val^.(syntax.Expr_Stmt)
-		assert(ok)
-		strings.write_string(&t.output_builder, " = ")
-		emit_expr(t, val.expr)
+		values = stmt_val
+		has_values = true
+	}
+
+	for name, i in stmt.names {
+		if i != 0 do strings.write_string(&t.output_builder, ", ")
+		emit_ident_token(t, name)
+		if has_values && len(values) > 0 {
+			strings.write_string(&t.output_builder, " = ")
+			emit_expr(t, values[min(i, len(values) - 1)])
+		}
 	}
 }
 
-emit_fn_declaration :: proc(t: ^Transpiler, stmt: syntax.Fn_Decl_Stmt) {
-	if stmt.stub {
+emit_fn_declaration :: proc(t: ^Transpiler, stmt: ^syntax.Fn_Decl_Stmt) {
+	if stmt.lit.block == nil {
 		return
 	}
-	
-	if stmt.async {
+
+	emit_fn(t, stmt.lit, stmt.name)
+}
+
+emit_fn :: proc(t: ^Transpiler, fn: syntax.Fn_Literal_Expr, name: Maybe(syntax.Token)) {
+	if fn.async {
 	    strings.write_string(&t.output_builder, "async function ")
 	} else {
 	    strings.write_string(&t.output_builder, "function ")
 	}
 
 	// name
-	emit_ident_token(t, stmt.name)
+	if name, ok := name.?; ok {
+		emit_ident_token(t, name)
+	}
 
 	// args
 	strings.write_string(&t.output_builder, "(")
-	for arg, i in stmt.args {
+	for arg, i in fn.args {
 		if i != 0 do strings.write_string(&t.output_builder, ", ")
 		strings.write_string(&t.output_builder, t.source[arg.name.lexeme_start:arg.name.lexeme_end])
 	}
 	strings.write_string(&t.output_builder, ") ")
 
 	//block
-	if block, ok := stmt.block.?; ok {
+	if block, ok := fn.block.?; ok {
 		emit_block(t, block)
 	}
 }
 
 emit_ident_assignment :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Assignment_Stmt) {
-	emit_ident_token(t, stmt.name)
-	strings.write_string(&t.output_builder, " = ")
-	emit_expr(t, stmt.value)
+	for name, i in stmt.names {
+		if i != 0 do strings.write_string(&t.output_builder, ", ")
+		emit_ident_token(t, name)
+		if len(stmt.value) > 0 {
+			strings.write_string(&t.output_builder, " = ")
+			emit_expr(t, stmt.value[min(i, len(stmt.value) - 1)])
+		}
+	}
 }
 
 emit_block :: proc(t: ^Transpiler, stmt: ^syntax.Block_Stmt) {
@@ -145,38 +182,50 @@ emit_block :: proc(t: ^Transpiler, stmt: ^syntax.Block_Stmt) {
 }
 
 emit_expr :: proc(t: ^Transpiler, expr: ^syntax.Expr) {
-	switch v in expr.expr {
+	switch &expr in expr.expr {
 	case syntax.Literal_Expr:
-		write_lexeme(t, v.token)
+		write_lexeme(t, expr.token)
 
 	case syntax.Unary_Expr:
-		#partial switch v.op {
+		#partial switch expr.op {
 		case .Minus:
 			strings.write_byte(&t.output_builder, '-')
 		case .Bang:
 			strings.write_byte(&t.output_builder, '!')
 		}
-		emit_expr(t, v.right)
+		emit_expr(t, expr.right)
 
 	case syntax.Binary_Expr:
-		emit_expr(t, v.left)
+		emit_expr(t, expr.left)
 		strings.write_byte(&t.output_builder, ' ')
-		strings.write_string(&t.output_builder, js_binary_op(v.op))
+		strings.write_string(&t.output_builder, js_binary_op(expr.op))
 		strings.write_byte(&t.output_builder, ' ')
-		emit_expr(t, v.right)
+		emit_expr(t, expr.right)
 
 	case syntax.Grouping_Expr:
 		strings.write_byte(&t.output_builder, '(')
-		emit_expr(t, v.expr)
+		emit_expr(t, expr.expr)
 		strings.write_byte(&t.output_builder, ')')
 
 	case syntax.Ident_Expr:
-		emit_ident_token(t, v.token)
+		emit_ident_token(t, expr.token)
+
+	case syntax.Fn_Literal_Expr:
+		emit_fn(t, expr, nil)
 
 	case syntax.Logical_Expr:
-		emit_expr(t, v.left)
-		strings.write_string(&t.output_builder, v.op == .And ? " && " : " || ")
-		emit_expr(t, v.right)
+		emit_expr(t, expr.left)
+		strings.write_string(&t.output_builder, expr.op == .And ? " && " : " || ")
+		emit_expr(t, expr.right)
+
+	case syntax.Fn_Call_Expr:
+		emit_ident_token(t, expr.name)
+		strings.write_byte(&t.output_builder, '(')
+		for arg, i in expr.args {
+			if i != 0 do strings.write_string(&t.output_builder, ", ")
+			emit_expr(t, arg)
+		}
+		strings.write_byte(&t.output_builder, ')')
 	}
 }
 
@@ -224,7 +273,7 @@ is_js_reserved :: proc(name: string) -> bool {
 }
 
 // JS reserved words. Anything that would be a syntax error in JS if used as an
-// identifier — keywords, future reserved, contextual reserved. Some entries
+// identifier - keywords, future reserved, contextual reserved. Some entries
 // (like `if`, `else`) can't actually appear because masa reserves them too,
 // but listing them is harmless and future-proof.
 JS_RESERVED := []string {

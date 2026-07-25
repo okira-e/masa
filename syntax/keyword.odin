@@ -7,6 +7,7 @@ Keyword :: enum u8 {
 	Else,
 	And,
 	Or,
+	Return,
 }
 
 Keyword_Entry :: struct {
@@ -21,6 +22,7 @@ keywords := []Keyword_Entry {
 	{"else",   .Else},
 	{"and",    .And},
 	{"or",     .Or},
+	{"return", .Return},
 }
 
 keyword_from_string :: proc(s: string) -> Maybe(Keyword) {

@@ -14,7 +14,9 @@ import "core:strings"
 //                     | if_stmt
 //                     | block
 //                     | fn_call
+//                     | return_stmt
 //                     | expr_stmt ;
+// - return_stmt      -> "return" ( expression ( "," expression )* )? ;
 // - ident_decl       -> IDENT ( ":=" | "::" ) expression
 //                     | IDENT ":" TYPE ( ( "=" | ":" ) expression )? ;
 // - ident_assignment -> IDENT "=" expression ;
@@ -54,7 +56,7 @@ init :: proc(p: ^Parser, tokens: []syntax.Token, allocator := context.allocator)
 	p.allocator = allocator
 }
 
-parse :: proc(p: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
+parse :: proc(p: ^Parser) -> ([dynamic]syntax.Stmt, Maybe(Parser_Error)) {
 	if len(p.tokens) == 0 {
 		return nil, Parser_Error{kind = .Empty_Tokens, message = "No tokens found"}
 	}
@@ -67,7 +69,7 @@ parse :: proc(p: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 	}
 
 	// worst case: assume one statement per token
-	stmts := make([dynamic]^syntax.Stmt, 0, len(p.tokens), allocator = p.allocator)
+	stmts := make([dynamic]syntax.Stmt, 0, len(p.tokens), allocator = p.allocator)
 
 	for !is_at_end(p) {
 		skip_trivia(p)
@@ -87,23 +89,33 @@ parse :: proc(p: ^Parser) -> ([dynamic]^syntax.Stmt, Maybe(Parser_Error)) {
 	return stmts, nil
 }
 
-parse_stmt :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
-	current := current(p)
-	#partial switch current.kind {
+parse_stmt :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	next, _ := next(p)
+	#partial switch current(p).kind {
 	case .Ident:
-		next, ok := next(p)
-		if ok {
-			#partial switch next.kind {
-			case .Colon_Equal, .Colon_Colon, .Colon:
-				return parse_decl(p)
 
-			case .Equal:
-				return parse_ident_assignment(p)
-			}
+		#partial switch next.kind {
+		case .Colon_Equal, .Colon_Colon, .Colon:
+			names := make([dynamic]syntax.Token, allocator = p.allocator)
+			append(&names, current(p))
+			advance(p) // the name
+			return parse_decl(p, names)
+
+		case .Equal:
+			names := make([dynamic]syntax.Token, allocator = p.allocator)
+			append(&names, current(p))
+			advance(p) // the name
+			return parse_ident_assignment(p, names)
+
+		case .Comma:
+			return parse_multi_target(p)
+
+		case .Left_Paren:
+			return parse_fn_call(p)
 		}
 
 	case .Keyword:
-		return parse_keyword(p, current)
+		return parse_keyword(p, current(p))
 
 	case .Left_Brace:
 		return parse_block(p)
@@ -115,12 +127,13 @@ parse_stmt :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	expr, err := parse_expr(p)
 	if err != nil do return nil, err
 
-	stmt := new(syntax.Stmt, allocator = p.allocator)
-	stmt^ = syntax.Expr_Stmt{expr = expr}
-	return stmt, nil
+	expr_stmt := new(syntax.Expr_Stmt, allocator = p.allocator)
+	expr_stmt.expr = expr
+
+	return expr_stmt, nil
 }
 
-parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	keyword, ok := token.keyword.?
 	assert(ok)
 
@@ -128,10 +141,13 @@ parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (^syntax.Stmt, Maybe(P
 	case .If:
 		return parse_if(p)
 
+	case .Return:
+		return parse_return(p)
+
 	case .Else:
 		return nil, Parser_Error {
 			kind = .Else_With_No_If,
-			message = "'else' has no matching 'if' — it must follow '}' on the same line",
+			message = "'else' has no matching 'if' - it must follow '}' on the same line",
 			token = token,
 		}
 	}
@@ -143,7 +159,7 @@ parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (^syntax.Stmt, Maybe(P
 	}
 }
 
-parse_if :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+parse_if :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	advance(p) // consume `if`
 
 	condition, cond_err := parse_expr(p)
@@ -154,7 +170,7 @@ parse_if :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	then_block, then_err := parse_block(p)
 	if then_err != nil do return nil, then_err
 
-	else_branch: Maybe(^syntax.Stmt)
+	else_branch: Maybe(syntax.Stmt)
 	tok := current(p)
 	if tok.kind == .Keyword && tok.keyword == .Else {
 		advance(p) // consume `else`
@@ -172,7 +188,7 @@ parse_if :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 		}
 	}
 
-	stmt := new(syntax.Stmt, allocator = p.allocator)
+	stmt := new(syntax.If_Stmt, allocator = p.allocator)
 	stmt^ = syntax.If_Stmt {
 		condition   = condition,
 		then_block  = then_block,
@@ -182,91 +198,174 @@ parse_if :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	return stmt, nil
 }
 
-parse_ident_assignment :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
-	name := current(p)
-	advance(p)
+parse_return :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	advance(p) // consume `return`
 
-	advance(p) // '='
+	exprs: [dynamic]^syntax.Expr
+	if terminates_statement(current(p).kind) {
+		exprs = make([dynamic]^syntax.Expr, allocator = p.allocator)
+	} else {
+		values, err := parse_ident_rhs(p)
+		if err != nil do return nil, err
+		exprs = values
+	}
 
-	value, err := parse_expr(p)
-	if err != nil do return nil, err
+	stmt := new(syntax.Return_Stmt, allocator = p.allocator)
+	stmt.exprs = exprs
 
-	stmt := new(syntax.Stmt, allocator = p.allocator)
-	stmt^ = syntax.Ident_Assignment_Stmt{value = value, name = name}
 	return stmt, nil
 }
 
-parse_decl :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
-	name := current(p)
-	advance(p)
+// Reports whether a token kind ends the current statement without contributing
+// to it: a newline, end of input, block close, or a trailing comment.
+@(private)
+terminates_statement :: proc(kind: syntax.Token_Kind) -> bool {
+	return kind == .New_Line || kind == .EOF || kind == .Right_Brace || kind == .Comment
+}
 
-	stmt: ^syntax.Stmt
-	#partial switch current(p).kind {
-	case .Colon_Equal, .Colon_Colon:
-		op := current(p)
-		advance(p)
+// Expects the cursor positioned at the '=' operator, with the target names
+// already collected by the caller.
+parse_ident_assignment :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	advance(p) // '='
 
-		if current(p).kind == .Keyword { // Non-Identifiers
-			err: Maybe(Parser_Error)
-			stmt, err = parse_non_ident_decls(p, name)
-			if err != nil do return nil, err
-		} else { // Identifiers
-			value, err := parse_expr(p)
-			if err != nil do return nil, err
+	value, err := parse_ident_rhs(p)
+	if err != nil do return nil, err
 
-			value_stmt := new(syntax.Stmt, allocator = p.allocator)
-			value_stmt^ = syntax.Expr_Stmt { expr = value }
+	stmt := new(syntax.Ident_Assignment_Stmt, allocator = p.allocator)
+	stmt.value = value
+	stmt.names = names
+	return stmt, nil
+}
 
-			stmt = new(syntax.Stmt, allocator = p.allocator)
-			stmt^ = syntax.Ident_Decl_Stmt {
-				name      = name,
-				value     = value_stmt,
-				constant  = op.kind == .Colon_Colon,
-				type      = nil,
-			}
-		}
+parse_ident_rhs :: proc(p: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Error)) {
+	exprs := make([dynamic]^syntax.Expr, allocator = p.allocator)
+	for {
+		value, err := parse_expr(p)
+		if err != nil do return nil, err
+		append(&exprs, value)
 
-	case .Colon:
-		advance(p)
+		if current(p).kind != .Comma do break
+		advance(p) // ','
+		skip_trivia(p)
+	}
 
-		// Either a non-keyword ident token or a type-keyword
+	return exprs, nil
+}
+
+parse_multi_target :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	names := make([dynamic]syntax.Token, allocator = p.allocator)
+
+	for {
 		if current(p).kind != .Ident {
 			return nil, Parser_Error {
-				kind    = .Incorrect_Type_Expr,
-				message = "expected a built-in or a user-defined type after ':'",
+				kind    = .Unexpected_Token,
+				message = "expected an identifier in the target list",
 				token   = current(p),
 			}
 		}
+		append(&names, current(p))
+		advance(p) // the identifier
 
-		type_token := current(p)
-		advance(p)
+		if current(p).kind != .Comma do break
+		advance(p) // ','
+		skip_trivia(p)
+	}
 
-		value: Maybe(^syntax.Expr)
+	#partial switch current(p).kind {
+	case .Colon_Colon, .Colon_Equal, .Colon:
+		return parse_decl(p, names)
+
+	case .Equal:
+		return parse_ident_assignment(p, names)
+
+	case:
+		return nil, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected ':=', '::', ':', or '=' after the target list",
+			token   = current(p),
+		}
+	}
+}
+
+parse_decl :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	stmt: syntax.Stmt
+	#partial switch current(p).kind {
+	case .Colon_Equal:
+		advance(p) // ':='
+
+		value, err := parse_ident_rhs(p)
+		if err != nil do return nil, err
+
+		decl_stmt := new(syntax.Ident_Decl_Stmt, allocator = p.allocator)
+		decl_stmt^ = syntax.Ident_Decl_Stmt {
+			names    = names,
+			value    = value,
+			constant = false,
+			type     = nil,
+		}
+		stmt = decl_stmt
+
+	case .Colon_Colon:
+		advance(p) // '::'
+
+		if len(names) == 1 {
+			if is_fn_keyword(current(p)) {
+				return parse_named_definition(p, names[0], nil)
+			}
+		}
+
+		value, err := parse_ident_rhs(p)
+		if err != nil do return nil, err
+
+		if len(names) > 1 {
+			ferr := reject_fn_literals(value)
+			if ferr != nil do return nil, ferr
+		}
+
+		decl_stmt := new(syntax.Ident_Decl_Stmt, allocator = p.allocator)
+		decl_stmt^ = syntax.Ident_Decl_Stmt {
+			names    = names,
+			value    = value,
+			constant = true,
+			type     = nil,
+		}
+		stmt = decl_stmt
+
+	case .Colon:
+		advance(p) // ':'
+
+		decl_type, type_err := parse_type(p)
+		if type_err != nil do return nil, type_err
+
+		value: Maybe([dynamic]^syntax.Expr)
 		constant := false
 		if current(p).kind == .Equal || current(p).kind == .Colon {
-			if current(p).kind == .Colon {
-				constant = true
+			constant = current(p).kind == .Colon
+			advance(p) // '=' or ':'
+
+			// A typed constant (`:`) to a single-name definition keyword is the
+			// same hoisted definition as `foo :: fn`, carrying its declared type.
+			if constant && len(names) == 1 && is_fn_keyword(current(p)) {
+				return parse_named_definition(p, names[0], decl_type)
 			}
 
-			advance(p) // '=' or ':'
-			err: Maybe(Parser_Error)
-			value, err = parse_expr(p)
+			rhs, err := parse_ident_rhs(p)
 			if err != nil do return nil, err
+
+			if constant && len(names) > 1 {
+				if ferr := reject_fn_literals(rhs); ferr != nil do return nil, ferr
+			}
+			value = rhs
 		}
 
-		value_stmt: Maybe(^syntax.Stmt) = nil
-		if value, ok := value.?; ok {
-			value_stmt = new(syntax.Stmt, allocator = p.allocator)
-			value_stmt.?^ = syntax.Expr_Stmt { expr = value }
-		}
-
-		stmt = new(syntax.Stmt, allocator = p.allocator)
-		stmt^ = syntax.Ident_Decl_Stmt {
-			name     = name,
-			value    = value_stmt,
+		decl_stmt := new(syntax.Ident_Decl_Stmt, allocator = p.allocator)
+		decl_stmt^ = syntax.Ident_Decl_Stmt {
+			names    = names,
+			value    = value,
 			constant = constant,
-			type     = syntax.Type{ token = type_token },
+			type     = decl_type,
 		}
+		stmt = decl_stmt
 
 	case:
 		return nil, Parser_Error {
@@ -279,33 +378,58 @@ parse_decl :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	return stmt, nil
 }
 
-// Things like functions, structs, interfaces, etc
-parse_non_ident_decls :: proc(p: ^Parser, name: syntax.Token) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+// Parses a should-be-hoisted named constant definition (bound with `::`, or a typed `:`).
+parse_named_definition :: proc(p: ^Parser, name: syntax.Token, type: Maybe(syntax.Type)) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	current := current(p)
 	assert(current.kind == .Keyword && current.keyword != nil)
 
-	stmt: ^syntax.Stmt
+	stmt: syntax.Stmt
 	#partial switch current.keyword.? {
 	case .Fn, .Async:
-		is_async := current.keyword.? == .Fn ? false : true
-
 		err: Maybe(Parser_Error)
-		stmt, err = parse_fn_decl_stmt(p, name, is_async)
+		stmt, err = parse_fn_decl_stmt(p, name, type)
 		if err != nil do return nil, err
 	}
 
 	return stmt, nil
 }
 
-parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, async: bool) -> (^syntax.Stmt, Maybe(Parser_Error)) {
-	if async {
+// Wraps a function literal in a named declaration. The cursor is positioned at
+// the leading `fn` or `async` keyword.
+parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, type: Maybe(syntax.Type)) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	lit, err := parse_fn_lit(p)
+	if err != nil do return nil, err
+
+	stmt := new(syntax.Fn_Decl_Stmt, allocator = p.allocator)
+	stmt^ = syntax.Fn_Decl_Stmt {
+		name = name,
+		lit  = lit,
+		type = type,
+	}
+
+	return stmt, nil
+}
+
+parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)) {
+	async := false
+	if current(p).kind == .Keyword && current(p).keyword == .Async {
+		async = true
 		advance(p) // consume 'async'
+		skip_trivia(p)
+	}
+
+	if !(current(p).kind == .Keyword && current(p).keyword == .Fn) {
+		return {}, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected 'fn' to begin a function literal",
+			token   = current(p),
+		}
 	}
 	advance(p) // consume 'fn'
 	skip_trivia(p)
 
 	if current(p).kind != .Left_Paren {
-		return nil, Parser_Error {
+		return {}, Parser_Error {
 			kind    = .Unexpected_Token,
 			message = "expected a '(' after 'fn' to declare a function",
 			token   = current(p),
@@ -320,23 +444,23 @@ parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, async: bool) -> (^syn
 		err: Maybe(Parser_Error)
 		skip_trivia(p)
 		args, err = parse_arg(p, .Comma)
-		if err != nil do return nil, err
+		if err != nil do return {}, err
 		skip_trivia(p)
 	}
-	
+
 	// Should close the parenthesis after arguments
 	if current(p).kind != .Right_Paren {
-		return nil, Parser_Error {
+		return {}, Parser_Error {
 			kind    = .Unexpected_Token,
 			message = "expected a ')' to end function arguments",
 			token   = current(p),
 		}
 	}
-	
+
 	advance(p) // consume ')'
 
 	// Return(s)
-	return_type: Maybe([dynamic]syntax.Token)
+	return_type: Maybe([dynamic]syntax.Type)
 	if next, ok := next(p); ok && current(p).kind == .Minus && next.kind == .Greater {
 		advance(p) // consume '-'
 		advance(p) // consume '>'
@@ -344,48 +468,127 @@ parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, async: bool) -> (^syn
 
 		returns: Maybe(Parser_Error)
 		return_type, returns = parse_returns(p)
-		if returns != nil do return nil, returns
+		if returns != nil do return {}, returns
 	}
 
 	block_stmt: Maybe(^syntax.Block_Stmt)
 	if current(p).kind == .Left_Brace {
 		value_stmt, err := parse_block(p)
-		if err != nil do return nil, err
+		if err != nil do return {}, err
 		ok: bool
-		block_stmt, ok = &value_stmt.(syntax.Block_Stmt)
+		block_stmt, ok = value_stmt.(^syntax.Block_Stmt)
 		assert(ok)
 	}
 
-	stmt := new(syntax.Stmt, allocator = p.allocator)
-	stmt^ = syntax.Fn_Decl_Stmt {
-		name  = name,
-		block = block_stmt, // Addressing since it was cast to value struct not a ptr
-		stub  = block_stmt == nil ? true : false,
+	return syntax.Fn_Literal_Expr {
+		block = block_stmt,
 		async = async,
-		args  = args,
+		args = args,
 		return_type = return_type,
-	}
-
-	return stmt, nil
+	}, nil
 }
 
-// Parses a function's return type(s): either a single bare type `string`, or a
-// parenthesized, comma-separated list `(string, number)`. Parentheses are
-// required for more than one return value.
-parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Token), Maybe(Parser_Error)) {
-	returns := make([dynamic]syntax.Token, allocator = p.allocator)
+parse_type :: proc(p: ^Parser) -> (syntax.Type, Maybe(Parser_Error)) {
+	start := current(p)
+
+	if is_fn_keyword(current(p)) {
+		ref, err := parse_fn_type(p)
+		if err != nil do return {}, err
+		return syntax.Type{variant = ref, span = make_span(start, p)}, nil
+
+	} else if current(p).kind == .Ident {
+		tok := current(p)
+		advance(p) // the type name
+		return syntax.Type{variant = tok, span = make_span(start, p)}, nil
+	}
+
+	return {}, Parser_Error {
+		kind    = .Incorrect_Type_Expr,
+		message = "expected a built-in or a user-defined type",
+		token   = current(p),
+	}
+}
+
+// Similar to parse_fn_lit but no body and no arg names
+parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
+	async := false
+	if current(p).kind == .Keyword && current(p).keyword == .Async {
+		async = true
+		advance(p) // 'async'
+		skip_trivia(p)
+	}
+
+	if !(current(p).kind == .Keyword && current(p).keyword == .Fn) {
+		return {}, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected 'fn' to begin a function type",
+			token   = current(p),
+		}
+	}
+	advance(p) // 'fn'
+	skip_trivia(p)
+
+	if current(p).kind != .Left_Paren {
+		return {}, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected a '(' after 'fn' in a function type",
+			token   = current(p),
+		}
+	}
+	advance(p) // '('
+
+	params := make([dynamic]syntax.Type, allocator = p.allocator)
+	for {
+		skip_trivia(p)
+		if current(p).kind == .Right_Paren {
+			break
+		}
+
+		param, err := parse_type(p)
+		if err != nil do return {}, err
+		append(&params, param)
+
+		skip_trivia(p)
+		if current(p).kind != .Comma {
+			break
+		}
+		advance(p) // ','
+	}
+
+	skip_trivia(p)
+	if current(p).kind != .Right_Paren {
+		return {}, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected a ')' to end function type parameters",
+			token   = current(p),
+		}
+	}
+	advance(p) // ')'
+
+	returns := make([dynamic]syntax.Type, allocator = p.allocator)
+	if next, ok := next(p); ok && current(p).kind == .Minus && next.kind == .Greater {
+		advance(p) // '-'
+		advance(p) // '>'
+		skip_trivia(p)
+
+		rets, err := parse_returns(p)
+		if err != nil do return {}, err
+		if r, ok := rets.?; ok {
+			returns = r
+		}
+	}
+
+	return syntax.Fn_Type{params = params, returns = returns, async = async}, nil
+}
+
+parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), Maybe(Parser_Error)) {
+	returns := make([dynamic]syntax.Type, allocator = p.allocator)
 
 	// Single, unparenthesized return type
 	if current(p).kind != .Left_Paren {
-		if current(p).kind != .Ident {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected a return type after '->'",
-				token   = current(p),
-			}
-		}
-		append(&returns, current(p))
-		advance(p) // the return type
+		ret, err := parse_type(p)
+		if err != nil do return nil, err
+		append(&returns, ret)
 		return returns, nil
 	}
 
@@ -397,15 +600,9 @@ parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Token), Maybe(Parser
 			break
 		}
 
-		if current(p).kind != .Ident {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected a return type inside '( )'",
-				token   = current(p),
-			}
-		}
-		append(&returns, current(p))
-		advance(p) // the return type
+		ret, err := parse_type(p)
+		if err != nil do return nil, err
+		append(&returns, ret)
 
 		skip_trivia(p)
 		if current(p).kind != .Comma {
@@ -427,6 +624,7 @@ parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Token), Maybe(Parser
 	return returns, nil
 }
 
+// nocheckin: Check the trailing commma dunno what happens currently
 parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.Fn_Arg, Maybe(Parser_Error)) {
 	args := make([dynamic]syntax.Fn_Arg, allocator = p.allocator)
 	
@@ -455,17 +653,9 @@ parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.
 		}
 		advance(p) // ':'
 
-		if current(p).kind != .Ident {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected a type after ':' when specifying an argument",
-				token   = current(p),
-			}
-		}
-		arg_type := current(p)
+		arg_type, type_err := parse_type(p)
+		if type_err != nil do return nil, type_err
 		append(&args, syntax.Fn_Arg{ name = arg_name, type = arg_type })
-		
-		advance(p) // arg type
 
 		skip_trivia(p)
 
@@ -479,24 +669,59 @@ parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.
 	return args, nil
 }
 
-// unused
-parse_fn_call :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+parse_call :: proc(p: ^Parser) -> (syntax.Token, [dynamic]^syntax.Expr, Maybe(Parser_Error)) {
+	name := current(p)
+	advance(p) // name
 	advance(p) // '('
 
-	args := make([dynamic]syntax.Token, allocator = p.allocator)
+	args := make([dynamic]^syntax.Expr, allocator = p.allocator)
 	for {
+		skip_trivia(p)
 		if current(p).kind == .Right_Paren {
 			break
 		}
 
-		arg := current(p)
-		append(&args, arg)
+		expr, err := parse_expr(p)
+		if err != nil do return {}, nil, err
+
+		append(&args, expr)
+
+		skip_trivia(p)
+		if current(p).kind != .Comma {
+			break
+		}
+		advance(p) // ','
 	}
-	
-	return {}, nil
+
+	if current(p).kind != .Right_Paren {
+		return name, args, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected ')' to end function call arguments",
+			token   = current(p),
+		}
+	}
+	advance(p) // ')'
+
+	return name, args, nil
 }
 
-parse_block :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
+parse_fn_call :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	name, args, err := parse_call(p)
+	if err != nil do return nil, err
+
+	stmt := new(syntax.Fn_Call_Stmt, allocator = p.allocator)
+	stmt^ = syntax.Fn_Call_Stmt {
+		call = syntax.Fn_Call_Expr {
+			name = name,
+			args = args,
+			awaited = false, // nocheckin
+		}
+	}
+
+	return stmt, nil
+}
+
+parse_block :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	open := current(p)
 	if open.kind != .Left_Brace {
 		return nil, Parser_Error {
@@ -507,7 +732,7 @@ parse_block :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 	}
 	advance(p)
 
-	inner := make([dynamic]^syntax.Stmt, 0, 8, allocator = p.allocator)
+	inner := make([dynamic]syntax.Stmt, 0, 8, allocator = p.allocator)
 
 	for {
 		skip_trivia(p)
@@ -520,7 +745,7 @@ parse_block :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 		if tok.kind == .EOF {
 			return nil, Parser_Error {
 				kind = .Unexpected_EOF,
-				message = "unexpected EOF while parsing block — missing '}'",
+				message = "unexpected EOF while parsing block - missing '}'",
 				token = tok,
 			}
 		}
@@ -533,8 +758,8 @@ parse_block :: proc(p: ^Parser) -> (^syntax.Stmt, Maybe(Parser_Error)) {
 		if term_err != nil do return nil, term_err
 	}
 
-	stmt := new(syntax.Stmt, allocator = p.allocator)
-	stmt^ = syntax.Block_Stmt{stmts = inner[:]}
+	stmt := new(syntax.Block_Stmt, allocator = p.allocator)
+	stmt.stmts = inner[:]
 	return stmt, nil
 }
 
@@ -546,6 +771,7 @@ parse_expr :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_logic_or :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	expr, err := parse_logic_and(p)
 	if err != nil do return expr, err
 
@@ -563,6 +789,7 @@ parse_logic_or :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Logical_Expr{left = expr, op = .Or, right = right},
+			span = make_span(start, p),
 		}
 		expr = result
 	}
@@ -571,6 +798,7 @@ parse_logic_or :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_logic_and :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	expr, err := parse_equality(p)
 	if err != nil do return expr, err
 
@@ -588,6 +816,7 @@ parse_logic_and :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Logical_Expr{left = expr, op = .And, right = right},
+			span = make_span(start, p),
 		}
 		expr = result
 	}
@@ -596,6 +825,7 @@ parse_logic_and :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_equality :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	expr, err := parse_comparison(p)
 	if err != nil do return expr, err
 
@@ -613,6 +843,7 @@ parse_equality :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
+			span = make_span(start, p),
 		}
 		expr = result
 	}
@@ -621,6 +852,7 @@ parse_equality :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_comparison :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	expr, err := parse_term(p)
 	if err != nil do return expr, err
 
@@ -638,6 +870,7 @@ parse_comparison :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
+			span = make_span(start, p),
 		}
 		expr = result
 	}
@@ -646,6 +879,7 @@ parse_comparison :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_term :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	expr, err := parse_factor(p)
 	if err != nil do return expr, err
 
@@ -663,6 +897,7 @@ parse_term :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
+			span = make_span(start, p),
 		}
 		expr = result
 	}
@@ -671,6 +906,7 @@ parse_term :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_factor :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	expr, err := parse_unary(p)
 	if err != nil do return expr, err
 
@@ -688,6 +924,7 @@ parse_factor :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
+			span = make_span(start, p),
 		}
 		expr = result
 	}
@@ -714,6 +951,7 @@ parse_unary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
 			expr = syntax.Unary_Expr{op = current_token.kind, right = right},
+			span = make_span(current_token, p),
 		}
 		return result, nil
 	}
@@ -724,8 +962,8 @@ parse_unary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	expr := new(syntax.Expr, allocator = p.allocator)
 
-	current_token := current(p)
-	if current_token.kind == .EOF {
+	tok := current(p)
+	if tok.kind == .EOF {
 		return expr, Parser_Error {
 			kind = .Unexpected_EOF,
 			message = "Unexpected \"EOF\" token while parsing primary",
@@ -733,19 +971,31 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		}
 	}
 
-	#partial switch current_token.kind {
+	#partial switch tok.kind {
 	case .Literal:
 		result := syntax.Expr {
-			expr = syntax.Literal_Expr{token = current_token},
+			expr = syntax.Literal_Expr{token = tok},
 		}
 		expr^ = result
 		advance(p)
 
 	case .Ident:
-		expr^ = syntax.Expr {
-			expr = syntax.Ident_Expr{token = current_token},
+		if n, ok := next(p); ok && n.kind == .Left_Paren { // function call
+			name, args, err := parse_call(p)
+			if err != nil do return expr, err
+			expr^ = syntax.Expr {
+				expr = syntax.Fn_Call_Expr{
+					name = name,
+					args = args,
+					awaited = false // nocheckin
+				},
+			}
+		} else {
+			expr^ = syntax.Expr {
+				expr = syntax.Ident_Expr{token = tok},
+			}
+			advance(p)
 		}
-		advance(p)
 
 	case .Left_Paren:
 		advance(p)
@@ -755,7 +1005,7 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		current_token := current(p)
 		if current_token.kind == .EOF || current_token.kind != .Right_Paren {
 			return expr, Parser_Error {
-				kind = .UnclosedParen,
+				kind = .Unclosed_Paren,
 				message = "Expected a \")\" token",
 				token = current_token,
 			}
@@ -767,15 +1017,34 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 			expr = syntax.Grouping_Expr{expr = expr_inner},
 		}
 
+	case .Keyword:
+		if !is_fn_keyword(tok) {
+			return expr, Parser_Error {
+				kind = .Unexpected_Token,
+				message = "Unexpected keyword while parsing primary",
+				token = tok,
+			}
+		}
+
+		// Anonymous function literal
+		lit, err := parse_fn_lit(p)
+		if err != nil do return expr, err
+		expr^ = syntax.Expr {
+			expr = lit,
+		}
+
 	case:
 		return expr, Parser_Error {
 			kind = .Unexpected_Token,
 			message = "Unexpected token while parsing primary",
-			token = current_token,
+			token = tok,
 		}
 
 	}
 
+	// tok is the first token of the this expression.
+	// The cursor has passed the expression so make_span taks the prev as the end
+	expr.span = make_span(tok, p)
 	return expr, nil
 }
 
@@ -796,6 +1065,14 @@ next :: proc(p: ^Parser) -> (syntax.Token, bool) {
 	}
 
 	return p.tokens[p.current + 1], true
+}
+
+prev_token :: proc(p: ^Parser) -> syntax.Token {
+	return p.tokens[max(p.current - 1, 0)]
+}
+
+make_span :: proc(start: syntax.Token, p: ^Parser) -> syntax.Span {
+	return syntax.Span{start = start.lexeme_start, end = prev_token(p).lexeme_end}
 }
 
 is_at_end :: proc(p: ^Parser) -> bool {
@@ -834,13 +1111,46 @@ expect_terminator :: proc(p: ^Parser) -> Maybe(Parser_Error) {
 		advance(p)
 	}
 	tok := current(p)
-	if tok.kind == .New_Line || tok.kind == .EOF || tok.kind == .Right_Brace do return nil
+	if tok.kind == .New_Line || tok.kind == .EOF || tok.kind == .Right_Brace {
+		return nil
+	}
+
 	return Parser_Error {
 		kind = .Missing_Terminator,
 		message = "expected newline, '}', or end of input after statement",
 		token = tok,
 	}
 }
+
+// Reports whether the token begins a function literal: `fn` or `async`.
+@(private)
+is_fn_keyword :: proc(token: syntax.Token) -> bool {
+	if token.kind != .Keyword do return false
+	kw, ok := token.keyword.?
+	assert(ok)
+	return ok && (kw == .Fn || kw == .Async)
+}
+
+// Rule A: a function literal may not appear in a multi-name constant
+// declaration - a definition must bind exactly one name.
+@(private)
+reject_fn_literals :: proc(exprs: [dynamic]^syntax.Expr) -> Maybe(Parser_Error) {
+	for expr in exprs {
+		if _, ok := expr.expr.(syntax.Fn_Literal_Expr); ok {
+			return Parser_Error {
+				kind    = .Fn_In_Multi_Decl,
+				message = "a function definition must bind a single name; it cannot appear in a multi-name '::' declaration",
+				token   = syntax.Token {
+					lexeme_start = expr.span.start,
+					lexeme_end   = expr.span.end,
+				},
+			}
+		}
+	}
+
+	return nil
+}
+
 
 Parser_Error :: struct {
 	kind:    Parser_Error_Kind,
@@ -852,11 +1162,12 @@ Parser_Error_Kind :: enum u8 {
 	Unexpected_EOF,
 	Empty_Tokens,
 	Missing_EOF,
-	UnclosedParen,
+	Unclosed_Paren,
 	Unexpected_Token,
 	Else_With_No_If,
 	Missing_Terminator,
 	Incorrect_Type_Expr,
+	Fn_In_Multi_Decl,
 }
 
 @(private)
@@ -865,7 +1176,7 @@ error_hint :: proc(kind: Parser_Error_Kind) -> Maybe(string) {
 	case .Unexpected_EOF:
 		return "input ended before the statement was complete"
 		
-	case .UnclosedParen:
+	case .Unclosed_Paren:
 		return "add a matching ')'"
 		
 	case .Incorrect_Type_Expr:
@@ -876,6 +1187,9 @@ error_hint :: proc(kind: Parser_Error_Kind) -> Maybe(string) {
 		
 	case .Missing_Terminator:
 		return "expected newline, '}', or end of input"
+
+	case .Fn_In_Multi_Decl:
+		return "give the function its own single-name '::' declaration"
 	}
 
 	return nil

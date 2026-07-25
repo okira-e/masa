@@ -1,5 +1,6 @@
 package main
 
+import "core:time"
 import "analyzer"
 import "ast"
 import "core:flags"
@@ -13,14 +14,15 @@ import "syntax"
 import "transpiler"
 
 App_Flags :: struct {
-	print_ast: bool `args:"name=print-ast"`,
-	emit_js:   bool `args:"name=emit-js"`,
+	print_ast:    bool `args:"name=print-ast"`,
+	emit_js:      bool `args:"name=emit-js"`,
+	show_metrics: bool `args:"name=show-metrics"`,
 }
 
 main :: proc() {
 	args := os.args[1:]
 	if len(args) == 0 {
-		fmt.fprintf(os.stderr, "Usage: masa <file.masa>\n")
+		fmt.fprintf(os.stderr, "Usage: masa run <file.masa>\n")
 		os.exit(1)
 	}
 
@@ -48,8 +50,11 @@ main :: proc() {
 	l := lexer.Lexer{}
 	lexer.init(&l, arena_alloc)
 
+	//
 	// Lexing
+	//
 
+	start := time.tick_now()
 	tokens, lexing_err := lexer.scan(&l, transmute(string)source)
 	defer delete(tokens)
 	if lexing_err != nil {
@@ -57,40 +62,65 @@ main :: proc() {
 		os.exit(1)
 	}
 	// lexer.print_tokens(transmute(string)source, tokens)
+    lexing_duration := time.tick_since(start)
 
+    //
 	// Parsing
+	//
 
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
+	start = time.tick_now()
 	stmts, parser_err := parser.parse(&p)
 	defer delete(stmts)
 	if parser_err != nil {
 		fmt.fprint(os.stderr, parser.format_error(parser_err.?, transmute(string)source))
 		os.exit(1)
 	}
+    parsing_duration := time.tick_since(start)
 	if app_flags.print_ast {
 		print_ast(stmts[:], transmute(string)source)
 	}
 	// for it in stmts do fmt.println("STMT:", it)
 
+	//
 	// Lexical analysis
+	//
 
 	a: analyzer.Analyzer
 	analyzer.init(&a, transmute(string)source)
 	defer analyzer.destroy(&a)
+	start = time.tick_now()
 	analyzer_err := analyzer.analyze(&a, stmts[:])
-	if analyzer_err != nil {
-		fmt.fprint(os.stderr, analyzer.format_error(analyzer_err.?, transmute(string)source))
+	if err, ok := analyzer_err.?; ok {
+		fmt.fprint(os.stderr, analyzer.format_error(err, transmute(string)source, context.temp_allocator))
 		os.exit(1)
 	}
+    analyzing_duration := time.tick_since(start)
 
+    //
 	// Transpilation to JavaScript
+	//
 
 	tr: transpiler.Transpiler
 	transpiler.init(&tr, transmute(string)source)
 	defer transpiler.destroy(&tr)
+	start = time.tick_now()
 	js := transpiler.transpile(&tr, stmts[:])
+    transpiling_duration := time.tick_since(start)
+
 	handle_js(app_flags, js)
+
+	if app_flags.show_metrics {
+		loc := len(strings.split_lines(transmute(string)source))
+		print_metrics(
+			loc,
+			lexing_duration,
+			parsing_duration,
+			analyzing_duration,
+			transpiling_duration
+		)
+	}
 }
 
 handle_js :: proc(app_flags: App_Flags, js: string) {
@@ -115,8 +145,18 @@ handle_js :: proc(app_flags: App_Flags, js: string) {
 	}
 }
 
+print_metrics :: proc(loc: int, lexing_duration, parsing_duration, analyzing_duration, transpiling_duration: time.Duration) {
+	fmt.printf("\n")
+	fmt.printf("Compiled %d lines of code.\n", loc)
+    fmt.printf("Lexing took:           %v\n", lexing_duration)
+    fmt.printf("Parsing took:          %v\n", lexing_duration)
+    fmt.printf("Lexical analysis took: %v\n", lexing_duration)
+    fmt.printf("Transpiling took:      %v\n", lexing_duration)
+	fmt.printf("\n")
+}
+
 @(private = "file")
-print_ast :: proc(stmts: []^syntax.Stmt, source: string) {
+print_ast :: proc(stmts: []syntax.Stmt, source: string) {
 	builder := strings.builder_make()
 	for stmt in stmts {
 		ast.build_ast_from_stmt(&builder, source, stmt)
