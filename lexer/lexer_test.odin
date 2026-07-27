@@ -435,7 +435,7 @@ test_lexer_lexeme_ranges :: proc(t: ^testing.T) {
 			continue
 		}
 
-		lexeme := input[tok.lexeme_start:tok.lexeme_end]
+		lexeme := input[tok.span.start:tok.span.end]
 
 		expected := ""
 		#partial switch tok.kind {
@@ -826,7 +826,7 @@ test_lexer_string_lexeme_content :: proc(t: ^testing.T) {
 			testing.fail_now(t)
 		}
 
-		lexeme := tt.input[tok.lexeme_start:tok.lexeme_end]
+		lexeme := tt.input[tok.span.start:tok.span.end]
 		if lexeme != tt.expected_string {
 			print_tokens(tt.input, tokens)
 			testing.expectf(
@@ -1189,7 +1189,7 @@ test_lexer_identifier_lexemes :: proc(t: ^testing.T) {
 			testing.fail_now(t)
 		}
 
-		lexeme := tt.input[tok.lexeme_start:tok.lexeme_end]
+		lexeme := tt.input[tok.span.start:tok.span.end]
 		if lexeme != tt.expected_string {
 			print_tokens(tt.input, tokens)
 			testing.expectf(
@@ -1405,6 +1405,30 @@ test_lexer_literal_kind :: proc(t: ^testing.T) {
 	}
 }
 
+@(test)
+test_multi_character_token_spans :: proc(t: ^testing.T) {
+	source := ":= :: == != <= >="
+	expected := []string{":=", "::", "==", "!=", "<=", ">="}
+
+	l: Lexer
+	init(&l)
+	tokens, err := scan(&l, source)
+	defer delete(tokens)
+	testing.expectf(t, err == nil, "unexpected lexer error: %v", err)
+	if err != nil do return
+
+	testing.expectf(t, len(tokens) == len(expected) + 1, "expected %d tokens plus EOF, got %d", len(expected), len(tokens))
+	if len(tokens) < len(expected) do return
+
+	for text, i in expected {
+		span := tokens[i].span
+		testing.expectf(t, syntax.span_is_valid(span, len(source)), "token %d has invalid span %v", i, span)
+		if syntax.span_is_valid(span, len(source)) {
+			testing.expectf(t, source[span.start:span.end] == text, "token %d spans %q, want %q", i, source[span.start:span.end], text)
+		}
+	}
+}
+
 @(private = "file")
 Test :: struct {
 	name:            string,
@@ -1416,4 +1440,3 @@ Test :: struct {
 	token_index:     int,
 	has_literal:     bool,
 }
-

@@ -148,7 +148,7 @@ emit_fn :: proc(t: ^Transpiler, fn: syntax.Fn_Literal_Expr, name: Maybe(syntax.T
 	strings.write_string(&t.output_builder, "(")
 	for arg, i in fn.args {
 		if i != 0 do strings.write_string(&t.output_builder, ", ")
-		strings.write_string(&t.output_builder, t.source[arg.name.lexeme_start:arg.name.lexeme_end])
+		strings.write_string(&t.output_builder, t.source[arg.name.span.start:arg.name.span.end])
 	}
 	strings.write_string(&t.output_builder, ") ")
 
@@ -232,7 +232,7 @@ emit_expr :: proc(t: ^Transpiler, expr: ^syntax.Expr) {
 // Emits an identifier. Mangles the name with a `$` prefix if it would collide with a
 // JS reserved word.
 emit_ident_token :: proc(t: ^Transpiler, token: syntax.Token) {
-	name := t.source[token.lexeme_start:token.lexeme_end]
+	name := t.source[token.span.start:token.span.end]
 	if is_js_reserved(name) {
 		strings.write_byte(&t.output_builder, '$')
 	}
@@ -240,7 +240,7 @@ emit_ident_token :: proc(t: ^Transpiler, token: syntax.Token) {
 }
 
 write_lexeme :: proc(t: ^Transpiler, tok: syntax.Token) {
-	strings.write_string(&t.output_builder, t.source[tok.lexeme_start:tok.lexeme_end])
+	strings.write_string(&t.output_builder, t.source[tok.span.start:tok.span.end])
 }
 
 write_indent :: proc(t: ^Transpiler) {

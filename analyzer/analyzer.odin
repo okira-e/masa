@@ -15,7 +15,7 @@ Analyzer :: struct {
 	t_any:         ^Symbol,
 
 	inside_func_body: bool,
-	should_return:    []Type
+	should_return:    []Type,
 }
 
 Scope :: struct {
@@ -125,21 +125,17 @@ check_stmt :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> Maybe(Analyzer_Error) {
 
 	case ^syntax.Return_Stmt:
 		if !a.inside_func_body {
-			return Analyzer_Error {
-				kind    = .Return_Outside_Function,
-				span    = span_of_exprs(stmt.exprs[:]),
-				message = "'return' can only appear inside a function body",
-			}
+			return analyzer_error(.Return_Outside_Function, stmt.keyword.span)
 		}
 
 		return check_return_stmt(a, stmt)
 	}
 
-	return Analyzer_Error {
-		kind    = .Illegal_Statement,
-		// span    = // nocheckin
-		message = "this statement is not allowed here",
-	}
+	return analyzer_error(
+		.Illegal_Statement,
+		syntax.span_of_stmt(stmt),
+		Illegal_Context_Error_Data{ctx = .Statement},
+	)
 }
 
 check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(Analyzer_Error) {
@@ -163,7 +159,7 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 						break
 					}
 
-					lexeme := a.source[rhs.token.lexeme_start:rhs.token.lexeme_end]
+					lexeme := a.source[rhs.token.span.start:rhs.token.span.end]
 					sym, found := resolve_ident(a, lexeme)
 					if !found {
 						is_type_alias_decl = false
@@ -179,23 +175,23 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 
 			if is_type_alias_decl {
 				for name_tok in stmt.names {
-					name := a.source[name_tok.lexeme_start:name_tok.lexeme_end]
+					name := a.source[name_tok.span.start:name_tok.span.end]
 					if _, dup := a.env.symbols[name]; dup {
-						return Analyzer_Error {
-							kind    = .Variable_Redeclaration,
-							span    = span_of(name_tok),
-							message = "name already declared in this scope",
-						}
+						return analyzer_error(
+							.Variable_Redeclaration,
+							name_tok.span,
+							Name_Error_Data{role = .Value},
+						)
 					}
 				}
 
 				for name_tok, i in stmt.names {
 					rhs := val[i].expr.(syntax.Ident_Expr)
-					lexeme := a.source[rhs.token.lexeme_start:rhs.token.lexeme_end]
+					lexeme := a.source[rhs.token.span.start:rhs.token.span.end]
 					sym, found := resolve_ident(a, lexeme)
 					assert(found)
 
-					name := a.source[name_tok.lexeme_start:name_tok.lexeme_end]
+					name := a.source[name_tok.span.start:name_tok.span.end]
 					a.env.symbols[name] = sym
 				}
 
@@ -230,11 +226,11 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 				if match_err != nil do return match_err
 
 				if declared_type != nil && type != nil && !match {
-					return Analyzer_Error {
-						kind    = .Type_Mismatch_On_Declaration,
-						span    = value.span,
-						message = "type mismatch",
-					}
+					return analyzer_error(
+						.Type_Mismatch_On_Declaration,
+						value.span,
+						Indexed_Error_Data{index = i},
+					)
 				}
 			}
 		}
@@ -243,31 +239,28 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 	if declared_type == nil && value_type == nil {
 		first_name := stmt.names[0]
 		last_name := stmt.names[len(stmt.names) - 1]
-		return Analyzer_Error {
-			kind    = .Declaration_Type_Missing,
-			span    = syntax.Span{start = first_name.lexeme_start, end = last_name.lexeme_end},
-			message = "declaration must either define a type or a value to infer the type from",
-		}
+		return analyzer_error(
+			.Declaration_Type_Missing,
+			syntax.span_join(first_name.span, last_name.span),
+		)
 	}
 
 	final_type := declared_type != nil ? declared_type.? : value_type.? // one has to exist
 	for name_token in stmt.names {
-		name := a.source[name_token.lexeme_start:name_token.lexeme_end]
+		name := a.source[name_token.span.start:name_token.span.end]
 
 		// Since shadowing is allowed, check only the current scope for duplicates
 		if _, dup := a.env.symbols[name]; dup {
-			return Analyzer_Error {
-				kind    = .Variable_Redeclaration,
-				span    = span_of(name_token),
-				message = "name already declared in this scope",
-			}
+			return analyzer_error(
+				.Variable_Redeclaration,
+				name_token.span,
+				Name_Error_Data{role = .Variable},
+			)
 		}
 
-		sym := new_symbol(Var_Symbol {
-			constant   = stmt.constant,
-			decl_token = name_token,
-			type       = final_type,
-		})
+		sym := new_symbol(
+			Var_Symbol{constant = stmt.constant, decl_token = name_token, type = final_type},
+		)
 		stmt.decl_kind = .Value
 
 		append(&a.env.owned_symbols, sym)
@@ -278,24 +271,20 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 }
 
 check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(Analyzer_Error) {
-	name := a.source[stmt.name.lexeme_start:stmt.name.lexeme_end]
+	name := a.source[stmt.name.span.start:stmt.name.span.end]
 	if _, exists := a.env.symbols[name]; exists {
-		return Analyzer_Error{
-			kind    = .Duplicate_Fn_Definition,
-			span    = span_of(stmt.name),
-			message = "function already defined"
-		}
+		return analyzer_error(
+			.Duplicate_Fn_Definition,
+			stmt.name.span,
+			Name_Error_Data{role = .Function},
+		)
 	}
 
 	// We know the type is Fn_Type. We don't care.
 	fn_type, err := check_fn_expr(a, stmt.lit)
 	if err != nil do return err
 
-	sym := new_symbol(Fn_Symbol {
-		name    = name,
-		type    = fn_type,
-		literal = stmt.lit,
-	})
+	sym := new_symbol(Fn_Symbol{name = name, type = fn_type, literal = stmt.lit})
 
 	append(&a.env.owned_symbols, sym)
 	a.env.symbols[name] = sym
@@ -324,27 +313,25 @@ check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, M
 		if err != nil do return {}, err
 
 		// duplicate
-		arg_name := a.source[arg.name.lexeme_start:arg.name.lexeme_end]
+		arg_name := a.source[arg.name.span.start:arg.name.span.end]
 		if seen[arg_name] {
-			return {}, Analyzer_Error {
-				kind    = .Duplicate_Fn_Argument_Definition,
-				span    = span_of(arg.name),
-				message = "duplicate argument name found"
-			}
+			return {}, analyzer_error(.Duplicate_Fn_Argument_Definition, arg.name.span, Name_Error_Data{role = .Argument})
 		}
 
 		seen[arg_name] = true
 		args_types[i] = arg_type
 	}
-	
+
 	for arg, i in expr.args {
-		arg_name := a.source[arg.name.lexeme_start:arg.name.lexeme_end]
-		sym := new_symbol(Var_Symbol {
-			constant   = true,
-			decl_token = arg.name,
-			type       = args_types[i],
-			is_arg     = true,
-		})
+		arg_name := a.source[arg.name.span.start:arg.name.span.end]
+		sym := new_symbol(
+			Var_Symbol {
+				constant = true,
+				decl_token = arg.name,
+				type = args_types[i],
+				is_arg = true,
+			},
+		)
 
 		captured_symbols[i] = Block_Capture {
 			name    = arg_name,
@@ -384,11 +371,7 @@ check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, M
 
 	// Check if the function returns
 	if block, ok := expr.block.?; ok && return_types != nil && !always_terminates(a, block) {
-		return {}, Analyzer_Error {
-			kind    = .Missing_Return,
-			// span    = // nocheckin: What's the span here?,
-			// message = "number of returned values doesn't match the declared return types",
-		}
+		return {}, analyzer_error(.Missing_Return, expr.span)
 	}
 
 	// nocheckin: Checks usage of await inside an async/non-async function
@@ -403,6 +386,7 @@ check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, M
 check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> Maybe(Analyzer_Error) {
 	values := make([dynamic]Type,        0, len(return_stmt.exprs), allocator = context.temp_allocator)
 	spans  := make([dynamic]syntax.Span, 0, len(return_stmt.exprs), allocator = context.temp_allocator)
+
 	for returned_expr in return_stmt.exprs {
 		types, err := check_expr(a, returned_expr)
 		if err != nil do return err
@@ -413,11 +397,11 @@ check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> May
 	}
 
 	if len(values) != len(a.should_return) {
-		return Analyzer_Error {
-			kind    = .Return_Count_Mismatch,
-			span    = span_of_exprs(return_stmt.exprs[:]),
-			message = "number of returned values doesn't match the declared return types",
-		}
+		return analyzer_error(
+			.Return_Count_Mismatch,
+			return_stmt.span,
+			Count_Error_Data{expected = len(a.should_return), actual = len(values)},
+		)
 	}
 
 	for value_type, i in values {
@@ -425,11 +409,7 @@ check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> May
 		if err != nil do return err
 
 		if !matches {
-			return Analyzer_Error {
-				kind    = .Return_Type_Mismatch,
-				span    = spans[i],
-				message = "returned value's type doesn't match the declared return type",
-			}
+			return analyzer_error(.Return_Type_Mismatch, spans[i], Indexed_Error_Data{index = i})
 		}
 	}
 
@@ -437,14 +417,14 @@ check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> May
 }
 
 check_fn_call :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Call_Stmt) -> Maybe(Analyzer_Error) {
-	name := a.source[stmt.call.name.lexeme_start:stmt.call.name.lexeme_end]
+	name := a.source[stmt.call.name.span.start:stmt.call.name.span.end]
 	sym, found := resolve_ident(a, name)
 	if !found {
-		return Analyzer_Error {
-			kind    = .Undefined_Variable,
-			span    = span_of(stmt.call.name), // nocheckin: Check the span thing is working with multiple error messages
-			message = "undefined function",
-		}
+		return analyzer_error(
+			.Undefined_Variable,
+			stmt.call.name.span,
+			Name_Error_Data{role = .Function},
+		)
 	}
 
 	is_callable := false
@@ -456,11 +436,7 @@ check_fn_call :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Call_Stmt) -> Maybe(Analyze
 	}
 
 	if !is_callable {
-		return Analyzer_Error{
-			kind    = .Not_Callable,
-			span    = span_of(stmt.call.name),
-			message = "value is not a function and cannot be called",
-		}
+		return analyzer_error(.Not_Callable, stmt.call.name.span)
 	}
 
 	// Return types are discarded in a call statement
@@ -494,26 +470,18 @@ check_ident_assignment :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Assignment_Stmt
 		case Fn_Symbol:
 			// A named function is declared with '::' (or the typed-constant form),
 			// which is constant, so it can't be reassigned.
-			return Analyzer_Error {
-				kind    = .Variable_Constant,
-				span    = span_of(name),
-				message = "cannot reassign a function declared as a constant",
-			}
+			return analyzer_error(.Variable_Constant, name.span, Name_Error_Data{role = .Function})
 
 		case Type_Symbol:
-			return Analyzer_Error {
-				kind    = .Type_In_Value_Position,
-				span    = span_of(name),
-				message = "type used in value position",
-			}
+			return analyzer_error(
+				.Type_In_Value_Position,
+				name.span,
+				Name_Error_Data{role = .Type},
+			)
 		}
 
 		if var.constant {
-			return Analyzer_Error {
-				kind    = .Variable_Constant,
-				span    = span_of(name),
-				message = "variable is declared as a constant and thus cannot be changed",
-			}
+			return analyzer_error(.Variable_Constant, name.span, Name_Error_Data{role = .Variable})
 		}
 
 		value_type := value_types[min(i, len(value_types) - 1)]
@@ -522,11 +490,7 @@ check_ident_assignment :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Assignment_Stmt
 		if match_err != nil do return match_err
 
 		if value_type != nil && !match {
-			return Analyzer_Error {
-				kind    = .Type_Mismatch_On_Assignment,
-				span    = span_of(name),
-				message = "type mismatch",
-			}
+			return analyzer_error(.Type_Mismatch_On_Assignment, name.span)
 		}
 	}
 
@@ -538,19 +502,11 @@ check_if_stmt :: proc(a: ^Analyzer, stmt: ^syntax.If_Stmt) -> Maybe(Analyzer_Err
 	if err != nil do return err
 	cond_type_symbol, sure := cond_type.(^Symbol)
 	if !sure {
-		return Analyzer_Error {
-			kind    = .Condition_Not_Bool,
-			span    = stmt.condition.span,
-			message = "if condition must be a bool",
-		}
+		return analyzer_error(.Condition_Not_Bool, stmt.condition.span)
 	}
 
 	if cond_type_symbol != a.t_bool {
-		return Analyzer_Error {
-			kind    = .Condition_Not_Bool,
-			span    = stmt.condition.span,
-			message = "if condition must be a bool",
-		}
+		return analyzer_error(.Condition_Not_Bool, stmt.condition.span)
 	}
 
 	err = check_stmt(a, stmt.then_block)
@@ -565,18 +521,18 @@ check_if_stmt :: proc(a: ^Analyzer, stmt: ^syntax.If_Stmt) -> Maybe(Analyzer_Err
 }
 
 Block_Capture :: struct {
-	name:   string,
-	sym:    ^Symbol,
+	name:    string,
+	sym:     ^Symbol,
 	mutable: bool,
 }
 
 check_block_stmt :: proc(
-	a: ^Analyzer,
+	a:    ^Analyzer,
 	stmt: ^syntax.Block_Stmt,
 	// Determines if the keyword can appear at all.
 	allow_return_keyword: bool,
-	declared_returns: []Type,
-	captured_symbols: []Block_Capture,
+	declared_returns:     []Type,
+	captured_symbols:     []Block_Capture,
 ) -> Maybe(Analyzer_Error) {
 	new_scope := make_scope(a.env)
 	a.env = new_scope
@@ -609,10 +565,14 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_
 		lit_kind, ok := expr.token.literal_kind.?
 		assert(ok)
 		switch lit_kind {
-		case .Number: return one_value(a.t_number), nil
-		case .String: return one_value(a.t_string), nil
-		case .Bool:   return one_value(a.t_bool),   nil
-		case .Nil:    return one_value(nil),        nil
+		case .Number:
+			return one_value(a.t_number), nil
+		case .String:
+			return one_value(a.t_string), nil
+		case .Bool:
+			return one_value(a.t_bool), nil
+		case .Nil:
+			return one_value(nil), nil
 		}
 
 	case syntax.Fn_Literal_Expr:
@@ -646,13 +606,13 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_
 			return one_value(s.type), nil
 
 		case Type_Symbol:
-			return nil, Analyzer_Error {
-				kind    = .Type_In_Value_Position,
-				span    = span_of(s.decl_token),
-				message = "type used in value position",
-			}
+			return nil, analyzer_error(
+				.Type_In_Value_Position,
+				expr.token.span,
+				Name_Error_Data{role = .Type},
+			)
 		}
-		
+
 
 	case syntax.Logical_Expr:
 		t, err := check_logical(a, expr)
@@ -670,40 +630,32 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_
 // The value list produced by a function call: the callee's resolved return
 // types (already computed at declaration time), or none for a void call.
 check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, Maybe(Analyzer_Error)) {
-	name := a.source[expr.name.lexeme_start:expr.name.lexeme_end]
+	name := a.source[expr.name.span.start:expr.name.span.end]
 	sym, found := resolve_ident(a, name)
 	if !found {
-		return nil, Analyzer_Error {
-			kind    = .Undefined_Variable,
-			span    = span_of(expr.name),
-			message = "undefined function",
-		}
+		return nil, analyzer_error(
+			.Undefined_Variable,
+			expr.name.span,
+			Name_Error_Data{role = .Function},
+		)
 	}
 
 	fn_sym, ok := sym^.(Fn_Symbol)
 	if !ok {
-		return nil, Analyzer_Error {
-			kind    = .Not_Callable,
-			span    = span_of(expr.name),
-			message = "value is not a function and cannot be called",
-		}
+		return nil, analyzer_error(.Not_Callable, expr.name.span)
 	}
 
 	if fn_sym.literal.block == nil {
-		return nil, Analyzer_Error {
-			kind    = .Call_To_Stub,
-			span    = span_of(expr.name),
-			message = "cannot call a function that has no body",
-		}
+		return nil, analyzer_error(.Call_To_Stub, expr.name.span)
 	}
 
 	// Check arguments match the declared parameters
 	if len(expr.args) != len(fn_sym.literal.args) {
-		return {}, Analyzer_Error {
-			kind    = .Argument_Count_Mismatch,
-			span    = span_of(expr.name),
-			message = "the number of arguments doesn't match the function's parameters",
+		data := Count_Error_Data{
+			expected = len(fn_sym.literal.args),
+			actual   = len(expr.args),
 		}
+		return {}, analyzer_error(.Argument_Count_Mismatch, expr.name.span, data)
 	}
 
 	// check type against declared one
@@ -717,11 +669,11 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, 
 		matches, merr := type_eq(arg_type, param_type)
 		if merr != nil do return nil, merr
 		if !matches {
-			return nil, Analyzer_Error {
-				kind    = .Argument_Type_Mismatch,
-				span    = passed_arg.span,
-				message = "an argument's type doesn't match the function's parameter",
-			}
+			return nil, analyzer_error(
+				.Argument_Type_Mismatch,
+				passed_arg.span,
+				Indexed_Error_Data{index = i},
+			)
 		}
 	}
 
@@ -738,42 +690,49 @@ type_from_token :: proc(a: ^Analyzer, tok: syntax.Token) -> (Type, Maybe(Analyze
 		lit_kind, ok := tok.literal_kind.?
 		assert(ok)
 		switch lit_kind {
-		case .Number: return a.t_number, nil
-		case .String: return a.t_string, nil
-		case .Bool:   return a.t_bool,   nil
-		case .Nil:    return nil,         nil
+		case .Number:
+			return a.t_number, nil
+		case .String:
+			return a.t_string, nil
+		case .Bool:
+			return a.t_bool, nil
+		case .Nil:
+			return nil, nil
 		}
 
 	case .Ident:
 		sym, err := resolve_symbol(a, tok)
 		if err != nil do return nil, err
+
 		#partial switch s in sym {
-		case Var_Symbol: return s.type, nil
-		case Fn_Symbol:  return s.type, nil
+		case Var_Symbol:
+			return s.type, nil
+		case Fn_Symbol:
+			return s.type, nil
 		}
-		return nil, Analyzer_Error {
-			kind    = .Type_In_Value_Position,
-			span    = span_of(tok),
-			message = "type used in value position",
-		}
+		return nil, analyzer_error(
+			.Type_In_Value_Position,
+			tok.span,
+			Name_Error_Data{role = .Type},
+		)
 	}
 
-	return nil, Analyzer_Error {
-		kind    = .Illegal_Statement,
-		span    = span_of(tok),
-		message = "unsupported call argument",
-	}
+	return nil, analyzer_error(
+		.Illegal_Statement,
+		tok.span,
+		Illegal_Context_Error_Data{ctx = .Call_Argument},
+	)
 }
 
 check_single_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> (Type, Maybe(Analyzer_Error)) {
 	types, err := check_expr(a, expr)
 	if err != nil do return nil, err
 	if len(types) != 1 {
-		return nil, Analyzer_Error {
-			kind    = .Multi_Value_In_Single_Context,
-			span    = expr.span,
-			message = "expression must produce exactly one value here",
-		}
+		return nil, analyzer_error(
+			.Multi_Value_In_Single_Context,
+			expr.span,
+			Count_Error_Data{expected = 1, actual = len(types)},
+		)
 	}
 
 	return types[0], nil
@@ -783,35 +742,36 @@ check_single_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> (Type, Maybe(Anal
 check_unary :: proc(a: ^Analyzer, expr: syntax.Unary_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
 	operand_type, err := check_single_expr(a, expr.right)
 	if err != nil do return nil, err
+
 	operand, ok := operand_type.(^Symbol)
 	if !ok {
-		return nil, Analyzer_Error {
-			kind    = .Operator_Type_Mismatch,
-			span    = expr.right.span,
-			message = "operand is not a value that supports this operator",
-		}
+		return nil, analyzer_error(
+			.Operator_Type_Mismatch,
+			expr.right.span,
+			Operator_Error_Data{reason = .Unsupported_Operand, operator_span = expr.op_span},
+		)
 	}
 
 	span := expr.right.span
 	#partial switch expr.op {
 	case .Minus:
 		if operand != a.t_number {
-			return nil, Analyzer_Error {
-				kind    = .Operator_Type_Mismatch,
-				span    = span,
-				message = "unary '-' requires a number",
-			}
+			return nil, analyzer_error(
+				.Operator_Type_Mismatch,
+				span,
+				Operator_Error_Data{reason = .Unary_Requires_Number, operator_span = expr.op_span},
+			)
 		}
 
 		return a.t_number, nil
 
 	case .Bang:
 		if operand != a.t_bool {
-			return nil, Analyzer_Error {
-				kind    = .Operator_Type_Mismatch,
-				span    = span,
-				message = "unary '!' requires a bool",
-			}
+			return nil, analyzer_error(
+				.Operator_Type_Mismatch,
+				span,
+				Operator_Error_Data{reason = .Unary_Requires_Bool, operator_span = expr.op_span},
+			)
 		}
 
 		return a.t_bool, nil
@@ -824,46 +784,54 @@ check_unary :: proc(a: ^Analyzer, expr: syntax.Unary_Expr) -> (^Symbol, Maybe(An
 check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
 	left_type, lerr := check_single_expr(a, v.left)
 	if lerr != nil do return nil, lerr
+
 	left, ok := left_type.(^Symbol)
 	if !ok {
-		return nil, Analyzer_Error {
-			kind    = .Operator_Type_Mismatch,
-			span    = v.left.span,
-			message = "left operand is not a value that supports this operator",
-		}
+		return nil, analyzer_error(
+			.Operator_Type_Mismatch,
+			v.left.span,
+			Operator_Error_Data{reason = .Left_Operand_Not_Value, operator_span = v.op_span},
+		)
 	}
 
 	right_type, rerr := check_single_expr(a, v.right)
 	if rerr != nil do return nil, rerr
+
 	right, sure := right_type.(^Symbol)
 	if !sure {
-		return nil, Analyzer_Error {
-			kind    = .Operator_Type_Mismatch,
-			span    = v.right.span,
-			message = "right operand is not a value that supports this operator",
-		}
+		return nil, analyzer_error(
+			.Operator_Type_Mismatch,
+			v.right.span,
+			Operator_Error_Data{reason = .Right_Operand_Not_Value, operator_span = v.op_span},
+		)
 	}
 
 	span := v.left.span
 	#partial switch v.op {
 	case .Plus, .Minus, .Star, .Slash:
 		if left != a.t_number || right != a.t_number {
-			return nil, Analyzer_Error {
-				kind    = .Operator_Type_Mismatch,
-				span    = span,
-				message = "arithmetic operator requires numbers",
-			}
+			return nil, analyzer_error(
+				.Operator_Type_Mismatch,
+				span,
+				Operator_Error_Data {
+					reason = .Arithmetic_Requires_Numbers,
+					operator_span = v.op_span,
+				},
+			)
 		}
 
 		return a.t_number, nil
 
 	case .Greater, .Greater_Equal, .Less, .Less_Equal:
 		if left != a.t_number || right != a.t_number {
-			return nil, Analyzer_Error {
-				kind    = .Operator_Type_Mismatch,
-				span    = span,
-				message = "comparison operator requires numbers",
-			}
+			return nil, analyzer_error(
+				.Operator_Type_Mismatch,
+				span,
+				Operator_Error_Data {
+					reason = .Comparison_Requires_Numbers,
+					operator_span = v.op_span,
+				},
+			)
 		}
 
 		return a.t_bool, nil
@@ -873,11 +841,14 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 		if err != nil do return {}, err
 
 		if !match {
-			return nil, Analyzer_Error {
-				kind    = .Operator_Type_Mismatch,
-				span    = span,
-				message = "equality requires operands of the same type",
-			}
+			return nil, analyzer_error(
+				.Operator_Type_Mismatch,
+				span,
+				Operator_Error_Data {
+					reason = .Equality_Requires_Matching_Types,
+					operator_span = v.op_span,
+				},
+			)
 		}
 
 		return a.t_bool, nil
@@ -894,30 +865,40 @@ check_logical :: proc(a: ^Analyzer, expr: syntax.Logical_Expr) -> (^Symbol, Mayb
 
 	left, ok := left_type.(^Symbol)
 	if !ok {
-		return nil, Analyzer_Error {
-			kind    = .Operator_Type_Mismatch,
-			span    = expr.left.span,
-			message = "left operand of a logical operator is not a bool",
-		}
+		return nil, analyzer_error(
+			.Operator_Type_Mismatch,
+			expr.left.span,
+			Operator_Error_Data {
+				reason        = .Logical_Left_Requires_Bool,
+				operator_span = expr.op_span,
+			},
+		)
 	}
 
 	right_type, rerr := check_single_expr(a, expr.right)
 	if rerr != nil do return nil, rerr
+
 	right, sure := right_type.(^Symbol)
 	if !sure {
-		return nil, Analyzer_Error {
-			kind    = .Operator_Type_Mismatch,
-			span    = expr.right.span,
-			message = "right operand of a logical operator is not a bool",
-		}
+		return nil, analyzer_error(
+			.Operator_Type_Mismatch,
+			expr.right.span,
+			Operator_Error_Data {
+				reason        = .Logical_Right_Requires_Bool,
+				operator_span = expr.op_span,
+			},
+		)
 	}
 
 	if left != a.t_bool || right != a.t_bool {
-		return nil, Analyzer_Error {
-			kind    = .Operator_Type_Mismatch,
-			span    = expr.left.span,
-			message = "logical operator requires bools",
-		}
+		return nil, analyzer_error(
+			.Operator_Type_Mismatch,
+			expr.left.span,
+			Operator_Error_Data{
+				reason        = .Logical_Requires_Bools,
+				operator_span = expr.op_span,
+			},
+		)
 	}
 
 	return a.t_bool, nil
@@ -937,8 +918,8 @@ resolve_ident :: proc(a: ^Analyzer, name: string) -> (^Symbol, bool) {
 
 // Resolve a syntactic type reference into a resolved analyzer `Type`. Recurses
 // through function types so `fn(number) -> string` resolves its params/returns.
-resolve_type :: proc(a: ^Analyzer, node: syntax.Type) -> (Type, Maybe(Analyzer_Error)) {
-	switch v in node.variant {
+resolve_type :: proc(a: ^Analyzer, type: syntax.Type) -> (Type, Maybe(Analyzer_Error)) {
+	switch v in type.variant {
 	case syntax.Token:
 		sym, err := resolve_token(a, v)
 		if err != nil do return nil, err
@@ -967,31 +948,23 @@ resolve_type :: proc(a: ^Analyzer, node: syntax.Type) -> (Type, Maybe(Analyzer_E
 	}
 
 	// Zero-value type node (shouldn't happen for parsed input).
-	return nil, Analyzer_Error {
-		kind    = .Undefined_Type,
-		span    = node.span,
-		message = "missing type",
-	}
+	return nil, analyzer_error(.Undefined_Type, type.span)
 }
 
 // Resolve a name expected to refer to a type (declaration type position).
 resolve_token :: proc(a: ^Analyzer, name_tok: syntax.Token) -> (^Symbol, Maybe(Analyzer_Error)) {
-	name := a.source[name_tok.lexeme_start:name_tok.lexeme_end]
+	name := a.source[name_tok.span.start:name_tok.span.end]
 	sym, found := resolve_ident(a, name)
 	if !found {
-		return nil, Analyzer_Error {
-			kind    = .Undefined_Type,
-			span    = span_of(name_tok),
-			message = "undefined type",
-		}
+		return nil, analyzer_error(.Undefined_Type, name_tok.span, Name_Error_Data{role = .Type})
 	}
 
 	if _, is_type := sym^.(Type_Symbol); !is_type {
-		return nil, Analyzer_Error {
-			kind    = .Value_Used_As_Type,
-			span    = span_of(name_tok),
-			message = "expected a type but found a value",
-		}
+		return nil, analyzer_error(
+			.Value_Used_As_Type,
+			name_tok.span,
+			Name_Error_Data{role = .Value},
+		)
 	}
 
 	return sym, nil
@@ -999,15 +972,15 @@ resolve_token :: proc(a: ^Analyzer, name_tok: syntax.Token) -> (^Symbol, Maybe(A
 
 // Resolve a name expected to refer to a variable (expression/assignment position).
 resolve_symbol :: proc(a: ^Analyzer, name_tok: syntax.Token) -> (^Symbol, Maybe(Analyzer_Error)) {
-	name := a.source[name_tok.lexeme_start:name_tok.lexeme_end]
+	name := a.source[name_tok.span.start:name_tok.span.end]
 	sym, found := resolve_ident(a, name)
 
 	if !found {
-		return nil, Analyzer_Error {
-			kind    = .Undefined_Variable,
-			span    = span_of(name_tok),
-			message = "undefined variable",
-		}
+		return nil, analyzer_error(
+			.Undefined_Variable,
+			name_tok.span,
+			Name_Error_Data{role = .Variable},
+		)
 	}
 
 	return sym, nil
@@ -1025,7 +998,7 @@ type_eq :: proc(a: Type, b: Type) -> (bool, Maybe(Analyzer_Error)) {
 		if !ok do return false, nil
 
 		return a == b, nil
-	
+
 	case Fn_Type:
 		b, ok := b.(Fn_Type)
 		if !ok do return false, nil
@@ -1072,7 +1045,7 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 	does_expr_terminate :: proc(expr: ^syntax.Expr) -> bool {
 		#partial switch e in expr.expr {
 		case syntax.Fn_Call_Expr:
-			// @TODO: Functions like panic might have a #terminates that would be handled here
+		// @TODO: Functions like panic might have a #terminates that would be handled here
 		}
 
 		return false
@@ -1109,23 +1082,28 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 		return terminates
 
 	case ^syntax.Fn_Call_Stmt:
-		name := a.source[s.call.name.lexeme_start:s.call.name.lexeme_end]
+		name := a.source[s.call.name.span.start:s.call.name.span.end]
 		sym, err := resolve_ident(a, name)
 		fn_sym, ok := sym.(Fn_Symbol)
 		assert(ok)
 		assert(fn_sym.literal.block != nil)
 
-		return always_terminates(a, fn_sym.literal.block.?.stmts[len(fn_sym.literal.block.?.stmts)-1])
+		return always_terminates(
+			a,
+			fn_sym.literal.block.?.stmts[len(fn_sym.literal.block.?.stmts) - 1],
+		)
 
 	case ^syntax.If_Stmt:
-		return s.else_branch != nil &&
+		return(
+			s.else_branch != nil &&
 			always_terminates(a, s.then_block) &&
-			always_terminates(a, s.else_branch.?)
+			always_terminates(a, s.else_branch.?) \
+		)
 
 	case ^syntax.Block_Stmt:
 		// @Performance: We Require a return statement to always be present
 		// in the last line of any function to improve compiler performance.
-		return len(s.stmts) > 0 && always_terminates(a, s.stmts[len(s.stmts)-1])
+		return len(s.stmts) > 0 && always_terminates(a, s.stmts[len(s.stmts) - 1])
 
 	case ^syntax.Return_Stmt:
 		return true
@@ -1134,19 +1112,6 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 	}
 
 	return false // ironic
-}
-
-// A token's lexeme span. Lets token-rooted diagnostics (names, types) share the
-// same span-based error path as expression-rooted ones (which carry expr.span).
-span_of :: proc(tok: syntax.Token) -> syntax.Span {
-	return syntax.Span{start = tok.lexeme_start, end = tok.lexeme_end}
-}
-
-// Best-effort span for a list of expressions (e.g. a return statement's values).
-// Falls back to an empty span when there's nothing to point at.
-span_of_exprs :: proc(exprs: []^syntax.Expr) -> syntax.Span {
-	if len(exprs) > 0 do return exprs[0].span
-	return {}
 }
 
 new_symbol :: proc(value: Symbol) -> ^Symbol {
@@ -1177,7 +1142,7 @@ free_scope :: proc(s: ^Scope) {
 }
 
 declare_type :: proc(scope: ^Scope, name: string) -> ^Symbol {
-	s := new_symbol(Type_Symbol{ name = name })
+	s := new_symbol(Type_Symbol{name = name})
 	append(&scope.owned_symbols, s)
 	scope.symbols[name] = s
 	return s
@@ -1193,9 +1158,70 @@ one_value :: proc(t: Type) -> []Type {
 
 
 Analyzer_Error :: struct {
-	kind:    Analyzer_Error_Kind,
-	span:    syntax.Span,
-	message: string,
+	kind: Analyzer_Error_Kind,
+	span: syntax.Span,
+	data: Maybe(Analyzer_Error_Data),
+}
+
+Analyzer_Error_Data :: struct {
+	value: Analyzer_Error_Data_Value,
+}
+
+Analyzer_Error_Data_Value :: union {
+	Name_Error_Data,
+	Count_Error_Data,
+	Indexed_Error_Data,
+	Operator_Error_Data,
+	Illegal_Context_Error_Data,
+}
+
+Name_Error_Data :: struct {
+	role: Name_Role,
+}
+
+Name_Role :: enum u8 {
+	Variable,
+	Function,
+	Type,
+	Argument,
+	Value,
+}
+
+Count_Error_Data :: struct {
+	expected: int,
+	actual:   int,
+}
+
+Indexed_Error_Data :: struct {
+	index: int,
+}
+
+Operator_Error_Data :: struct {
+	reason:        Operator_Error_Reason,
+	operator_span: syntax.Span,
+}
+
+Operator_Error_Reason :: enum u8 {
+	Unsupported_Operand,
+	Unary_Requires_Number,
+	Unary_Requires_Bool,
+	Left_Operand_Not_Value,
+	Right_Operand_Not_Value,
+	Arithmetic_Requires_Numbers,
+	Comparison_Requires_Numbers,
+	Equality_Requires_Matching_Types,
+	Logical_Left_Requires_Bool,
+	Logical_Right_Requires_Bool,
+	Logical_Requires_Bools,
+}
+
+Illegal_Context_Error_Data :: struct {
+	ctx: Illegal_Context,
+}
+
+Illegal_Context :: enum u8 {
+	Statement,
+	Call_Argument,
 }
 
 Analyzer_Error_Kind :: enum u8 {
@@ -1225,9 +1251,263 @@ Analyzer_Error_Kind :: enum u8 {
 	Multi_Value_In_Single_Context,
 }
 
+analyzer_error :: proc {
+	analyzer_error_without_data,
+	analyzer_error_with_data,
+}
+
+analyzer_error_without_data :: proc(
+	kind: Analyzer_Error_Kind,
+	span: syntax.Span,
+) -> Analyzer_Error {
+	return Analyzer_Error{kind = kind, span = span}
+}
+
+analyzer_error_with_data :: proc(
+	kind: Analyzer_Error_Kind,
+	span: syntax.Span,
+	value: $T,
+) -> Analyzer_Error {
+	data := Analyzer_Error_Data{value = value}
+	return Analyzer_Error{kind = kind, span = span, data = data}
+}
+
+error_message :: proc(
+	err: Analyzer_Error,
+	source: string,
+	allocator := context.allocator,
+) -> string {
+	name := source_for_span(source, err.span)
+
+	switch err.kind {
+	case .Undefined_Variable:
+		data, ok := err.data.?
+		assert(ok)
+		name_data, is_name := data.value.(Name_Error_Data)
+		assert(is_name)
+		noun := name_data.role == .Function ? "function" : "variable"
+		return fmt.aprintf("undefined %s '%s'", noun, name, allocator = allocator)
+
+	case .Undefined_Type:
+		if data, ok := err.data.?; ok {
+			_, ok := data.value.(Name_Error_Data)
+			assert(ok)
+			return fmt.aprintf("undefined type '%s'", name, allocator = allocator)
+		}
+		return fmt.aprintf("missing type", allocator = allocator)
+
+	case .Value_Used_As_Type:
+		return fmt.aprintf("value '%s' cannot be used as a type", name, allocator = allocator)
+
+	case .Variable_Redeclaration:
+		return fmt.aprintf(
+			"name '%s' is already declared in this scope",
+			name,
+			allocator = allocator,
+		)
+
+	case .Duplicate_Fn_Definition:
+		return fmt.aprintf("function '%s' is already defined", name, allocator = allocator)
+
+	case .Duplicate_Fn_Argument_Definition:
+		return fmt.aprintf("argument '%s' is already defined", name, allocator = allocator)
+
+	case .Variable_Constant:
+		data, ok := err.data.?
+		assert(ok)
+		name_data, is_name := data.value.(Name_Error_Data)
+		assert(is_name)
+		noun := name_data.role == .Function ? "function" : "variable"
+		return fmt.aprintf("cannot reassign constant %s '%s'", noun, name, allocator = allocator)
+
+	case .Type_Mismatch_On_Assignment:
+		return fmt.aprintf(
+			"assigned value does not match the type of '%s'",
+			name,
+			allocator = allocator,
+		)
+
+	case .Type_Mismatch_On_Declaration:
+		data, ok := err.data.?
+		assert(ok)
+		indexed_data, is_indexed := data.value.(Indexed_Error_Data)
+		assert(is_indexed)
+		return fmt.aprintf(
+			"initializer %d does not match the declared type",
+			indexed_data.index + 1,
+			allocator = allocator,
+		)
+
+	case .Declaration_Type_Missing:
+		return fmt.aprintf("declaration requires a type or initial value", allocator = allocator)
+
+	case .Type_In_Value_Position:
+		return fmt.aprintf("type '%s' cannot be used as a value", name, allocator = allocator)
+
+	case .Operator_Type_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		operator_data, is_operator := data.value.(Operator_Error_Data)
+		assert(is_operator)
+		op := source_for_span(source, operator_data.operator_span)
+		switch operator_data.reason {
+		case .Unsupported_Operand:
+			return fmt.aprintf(
+				"operator '%s' cannot be applied to this value",
+				op,
+				allocator = allocator,
+			)
+		case .Unary_Requires_Number:
+			return fmt.aprintf(
+				"operator '%s' requires a number operand",
+				op,
+				allocator = allocator,
+			)
+		case .Unary_Requires_Bool:
+			return fmt.aprintf("operator '%s' requires a bool operand", op, allocator = allocator)
+		case .Left_Operand_Not_Value:
+			return fmt.aprintf(
+				"left operand of '%s' is not a supported value",
+				op,
+				allocator = allocator,
+			)
+		case .Right_Operand_Not_Value:
+			return fmt.aprintf(
+				"right operand of '%s' is not a supported value",
+				op,
+				allocator = allocator,
+			)
+		case .Arithmetic_Requires_Numbers:
+			return fmt.aprintf("operator '%s' requires number operands", op, allocator = allocator)
+		case .Comparison_Requires_Numbers:
+			return fmt.aprintf("operator '%s' requires number operands", op, allocator = allocator)
+		case .Equality_Requires_Matching_Types:
+			return fmt.aprintf(
+				"operator '%s' requires operands of the same type",
+				op,
+				allocator = allocator,
+			)
+		case .Logical_Left_Requires_Bool:
+			return fmt.aprintf("left operand of '%s' must be a bool", op, allocator = allocator)
+		case .Logical_Right_Requires_Bool:
+			return fmt.aprintf("right operand of '%s' must be a bool", op, allocator = allocator)
+		case .Logical_Requires_Bools:
+			return fmt.aprintf("operator '%s' requires bool operands", op, allocator = allocator)
+		}
+
+	case .Condition_Not_Bool:
+		return fmt.aprintf("if condition must be a bool", allocator = allocator)
+
+	case .Not_Callable:
+		return fmt.aprintf("value '%s' is not callable", name, allocator = allocator)
+
+	case .Call_To_Stub:
+		return fmt.aprintf(
+			"function '%s' has no body and cannot be called",
+			name,
+			allocator = allocator,
+		)
+
+	case .Argument_Count_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		count_data, is_count := data.value.(Count_Error_Data)
+		assert(is_count)
+		if count_data.expected == 1 {
+			return fmt.aprintf(
+				"expected 1 argument, received %d",
+				count_data.actual,
+				allocator = allocator,
+			)
+		}
+		return fmt.aprintf(
+			"expected %d arguments, received %d",
+			count_data.expected,
+			count_data.actual,
+			allocator = allocator,
+		)
+
+	case .Argument_Type_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		indexed_data, is_indexed := data.value.(Indexed_Error_Data)
+		assert(is_indexed)
+		return fmt.aprintf(
+			"argument %d does not match its parameter type",
+			indexed_data.index + 1,
+			allocator = allocator,
+		)
+
+	case .Missing_Return:
+		return fmt.aprintf("function does not return a value on every path", allocator = allocator)
+
+	case .Return_Type_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		indexed_data, is_indexed := data.value.(Indexed_Error_Data)
+		assert(is_indexed)
+		return fmt.aprintf(
+			"return value %d does not match its declared type",
+			indexed_data.index + 1,
+			allocator = allocator,
+		)
+
+	case .Return_Count_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		count_data, is_count := data.value.(Count_Error_Data)
+		assert(is_count)
+		if count_data.expected == 1 {
+			return fmt.aprintf(
+				"expected 1 return value, received %d",
+				count_data.actual,
+				allocator = allocator,
+			)
+		}
+		return fmt.aprintf(
+			"expected %d return values, received %d",
+			count_data.expected,
+			count_data.actual,
+			allocator = allocator,
+		)
+
+	case .Return_Outside_Function:
+		return fmt.aprintf(
+			"'return' can only appear inside a function body",
+			allocator = allocator,
+		)
+
+	case .Illegal_Statement:
+		data, ok := err.data.?
+		assert(ok)
+		context_data, is_context := data.value.(Illegal_Context_Error_Data)
+		assert(is_context)
+		if context_data.ctx == .Call_Argument {
+			return fmt.aprintf("unsupported call argument", allocator = allocator)
+		}
+		return fmt.aprintf("statement is not allowed in this position", allocator = allocator)
+
+	case .Void_In_Comparison:
+		return fmt.aprintf("a call returning no value cannot be compared", allocator = allocator)
+
+	case .Multi_Value_In_Single_Context:
+		data, ok := err.data.?
+		assert(ok)
+		count_data, is_count := data.value.(Count_Error_Data)
+		assert(is_count)
+		return fmt.aprintf(
+			"expected one value, expression produces %d",
+			count_data.actual,
+			allocator = allocator,
+		)
+	}
+
+	unreachable()
+}
+
 @(private)
-error_hint :: proc(kind: Analyzer_Error_Kind) -> Maybe(string) {
-	#partial switch kind {
+error_hint :: proc(err: Analyzer_Error) -> Maybe(string) {
+	#partial switch err.kind {
 	case .Variable_Constant:
 		return "declare with ':=' instead of '::' if it needs to change"
 
@@ -1274,15 +1554,28 @@ error_hint :: proc(kind: Analyzer_Error_Kind) -> Maybe(string) {
 		return "a call returning no value can't be used in a comparison"
 
 	case .Multi_Value_In_Single_Context:
-		return "a call returning several values can only be used in a return, declaration, or assignment"
+		return(
+			"a call returning several values can only be used in a return, declaration, or assignment" \
+		)
 	}
 
 	return nil
 }
 
-format_error :: proc(err: Analyzer_Error, source: string, allocator := context.allocator) -> string {
+@(private)
+source_for_span :: proc(source: string, span: syntax.Span) -> string {
+	start := clamp(span.start, 0, len(source))
+	end := clamp(span.end, start, len(source))
+	return source[start:end]
+}
+
+format_error :: proc(
+	err: Analyzer_Error,
+	source: string,
+	allocator := context.allocator,
+) -> string {
 	start := clamp(err.span.start, 0, len(source))
-	end   := clamp(err.span.end,   start, len(source))
+	end := clamp(err.span.end, start, len(source))
 
 	line_start := 0
 	for i := start - 1; i >= 0; i -= 1 {
@@ -1310,12 +1603,13 @@ format_error :: proc(err: Analyzer_Error, source: string, allocator := context.a
 	caret_count := max(span_end - start, 1)
 
 	line_text := source[line_start:line_end]
-	hint := error_hint(err.kind)
+	message := error_message(err, source, context.temp_allocator)
+	hint := error_hint(err)
 
 	b: strings.Builder
 	strings.builder_init(&b, allocator)
 
-	fmt.sbprintf(&b, "error: %s\n", err.message)
+	fmt.sbprintf(&b, "error: %s\n", message)
 	fmt.sbprintf(&b, "  --> line %d, column %d\n", line_no, column)
 
 	gutter_str := fmt.tprintf("%d", line_no)
@@ -1332,7 +1626,7 @@ format_error :: proc(err: Analyzer_Error, source: string, allocator := context.a
 
 	write_repeat(&b, ' ', gutter + 1)
 	strings.write_string(&b, " | ")
-	write_repeat(&b, ' ', column - 1)
+	write_source_padding(&b, source[line_start:start])
 	write_repeat(&b, '^', caret_count)
 	if hint != nil {
 		strings.write_byte(&b, ' ')
@@ -1344,6 +1638,13 @@ format_error :: proc(err: Analyzer_Error, source: string, allocator := context.a
 }
 
 @(private)
+write_source_padding :: proc(b: ^strings.Builder, source_prefix: string) {
+	for i in 0 ..< len(source_prefix) {
+		strings.write_byte(b, source_prefix[i] == '\t' ? '\t' : ' ')
+	}
+}
+
+@(private)
 write_repeat :: proc(b: ^strings.Builder, c: byte, n: int) {
-	for _ in 0..<n do strings.write_byte(b, c)
+	for _ in 0 ..< n do strings.write_byte(b, c)
 }

@@ -1,11 +1,5 @@
 package syntax
 
-// A half-open byte range into the source: [start, end).
-Span :: struct {
-	start: int,
-	end:   int,
-}
-
 Expr_Variant :: union {
 	Literal_Expr,
 	Unary_Expr,
@@ -27,14 +21,16 @@ Literal_Expr :: struct {
 }
 
 Unary_Expr :: struct {
-	op:    Token_Kind,
-	right: ^Expr,
+	op:      Token_Kind,
+	op_span: Span,
+	right:   ^Expr,
 }
 
 Binary_Expr :: struct {
-	left:  ^Expr,
-	op:    Token_Kind,
-	right: ^Expr,
+	left:    ^Expr,
+	op:      Token_Kind,
+	op_span: Span,
+	right:   ^Expr,
 }
 
 Grouping_Expr :: struct {
@@ -46,15 +42,17 @@ Ident_Expr :: struct {
 }
 
 Logical_Expr :: struct {
-	left:  ^Expr,
-	op:    Keyword, // .And or .Or
-	right: ^Expr,
+	left:    ^Expr,
+	op:      Keyword, // .And or .Or
+	op_span: Span,
+	right:   ^Expr,
 }
 
 Fn_Call_Expr :: struct {
-	name: Token,
-	args: [dynamic]^Expr,
+	name:    Token,
+	args:    [dynamic]^Expr,
 	awaited: bool,
+	span:    Span,
 }
 
 Fn_Literal_Expr :: struct {
@@ -64,6 +62,7 @@ Fn_Literal_Expr :: struct {
 	return_type: Maybe([dynamic]Type),
 	args:        [dynamic]Fn_Arg,
 	async:       bool,
+	span:        Span,
 }
 
 expr_eq :: proc(a: ^Expr, b: ^Expr) -> bool {

@@ -3,6 +3,7 @@ package analyzer
 import "../lexer"
 import "../parser"
 import "core:mem"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -172,6 +173,68 @@ test_untyped_mutable_rejects_assignment_type_mismatch :: proc(t: ^testing.T) {
 	e, ok := err.?
 	testing.expect(t, ok)
 	testing.expectf(t, e.kind == .Type_Mismatch_On_Assignment, "got %v", e.kind)
+}
+
+@(test)
+test_error_caret_preserves_tab_alignment :: proc(t: ^testing.T) {
+	source := "foo :: fn() -> string {\n\treturn\n}"
+	err := check(source)
+	e, ok := err.?
+	testing.expect(t, ok, "expected return count mismatch")
+	if !ok do return
+
+	formatted := format_error(e, source)
+	defer delete(formatted)
+
+	testing.expectf(
+		t,
+		strings.contains(formatted, "  | \t^^^^^^"),
+		"caret line does not preserve tab indentation:\n%s",
+		formatted,
+	)
+}
+
+@(test)
+test_error_message_uses_name_payload_after_analyzer_destroy :: proc(t: ^testing.T) {
+	expect_message(t, "missing()", "undefined function 'missing'")
+}
+
+@(test)
+test_error_message_uses_count_payload_after_analyzer_destroy :: proc(t: ^testing.T) {
+	expect_message(t, "foo :: fn(a: number) {}\nfoo()", "expected 1 argument, received 0")
+}
+
+@(test)
+test_error_message_uses_argument_index_payload :: proc(t: ^testing.T) {
+	expect_message(
+		t,
+		"foo :: fn(a: number, b: string) {}\nfoo(1, 2)",
+		"argument 2 does not match its parameter type",
+	)
+}
+
+@(test)
+test_error_message_uses_operator_span_payload :: proc(t: ^testing.T) {
+	expect_message(t, "x := true + 1", "operator '+' requires number operands")
+}
+
+@(test)
+test_type_in_value_error_uses_reference_span :: proc(t: ^testing.T) {
+	source := "x := number"
+	err := check(source)
+	e, ok := err.?
+	testing.expect(t, ok, "expected type-in-value-position error")
+	if !ok do return
+
+	testing.expectf(
+		t,
+		source[e.span.start:e.span.end] == "number",
+		"error span points to %q",
+		source[e.span.start:e.span.end],
+	)
+	message := error_message(e, source)
+	defer delete(message)
+	testing.expectf(t, message == "type 'number' cannot be used as a value", "got %q", message)
 }
 
 @(test)
@@ -566,7 +629,10 @@ test_call_with_correct_args :: proc(t: ^testing.T) {
 
 @(test)
 test_call_result_feeds_another_decl :: proc(t: ^testing.T) {
-	expect_ok(t, "add :: fn(a: number, b: number) -> number { return a + b }\nx := add(1, 2)\ny := x + 1")
+	expect_ok(
+		t,
+		"add :: fn(a: number, b: number) -> number { return a + b }\nx := add(1, 2)\ny := x + 1",
+	)
 }
 
 @(test)
@@ -645,7 +711,11 @@ test_call_argument_type_mismatch :: proc(t: ^testing.T) {
 
 @(test)
 test_call_expr_too_few_args :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number) -> number { return a }\nx := foo()", .Argument_Count_Mismatch)
+	expect_kind(
+		t,
+		"foo :: fn(a: number) -> number { return a }\nx := foo()",
+		.Argument_Count_Mismatch,
+	)
 }
 
 @(test)
@@ -655,32 +725,56 @@ test_call_expr_too_many_args :: proc(t: ^testing.T) {
 
 @(test)
 test_call_expr_multi_param_too_few :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number, b: number) -> number { return a }\nx := foo(1)", .Argument_Count_Mismatch)
+	expect_kind(
+		t,
+		"foo :: fn(a: number, b: number) -> number { return a }\nx := foo(1)",
+		.Argument_Count_Mismatch,
+	)
 }
 
 @(test)
 test_call_expr_arg_type_mismatch_literal :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number) -> number { return a }\nx := foo(\"hi\")", .Argument_Type_Mismatch)
+	expect_kind(
+		t,
+		"foo :: fn(a: number) -> number { return a }\nx := foo(\"hi\")",
+		.Argument_Type_Mismatch,
+	)
 }
 
 @(test)
 test_call_expr_arg_type_mismatch_ident :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number) -> number { return a }\ns := \"hi\"\nx := foo(s)", .Argument_Type_Mismatch)
+	expect_kind(
+		t,
+		"foo :: fn(a: number) -> number { return a }\ns := \"hi\"\nx := foo(s)",
+		.Argument_Type_Mismatch,
+	)
 }
 
 @(test)
 test_call_expr_fn_value_as_arg_mismatch :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number) -> number { return a }\nbar :: fn() {}\nx := foo(bar)", .Argument_Type_Mismatch)
+	expect_kind(
+		t,
+		"foo :: fn(a: number) -> number { return a }\nbar :: fn() {}\nx := foo(bar)",
+		.Argument_Type_Mismatch,
+	)
 }
 
 @(test)
 test_call_expr_undefined_arg :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number) -> number { return a }\nx := foo(missing)", .Undefined_Variable)
+	expect_kind(
+		t,
+		"foo :: fn(a: number) -> number { return a }\nx := foo(missing)",
+		.Undefined_Variable,
+	)
 }
 
 @(test)
 test_call_expr_type_name_as_arg :: proc(t: ^testing.T) {
-	expect_kind(t, "foo :: fn(a: number) -> number { return a }\nx := foo(number)", .Type_In_Value_Position)
+	expect_kind(
+		t,
+		"foo :: fn(a: number) -> number { return a }\nx := foo(number)",
+		.Type_In_Value_Position,
+	)
 }
 
 @(test)
@@ -726,7 +820,12 @@ test_call_stmt_correct_ident_arg :: proc(t: ^testing.T) {
 
 // Asserts analysis of `source` fails with exactly `kind`.
 @(private)
-expect_kind :: proc(t: ^testing.T, source: string, kind: Analyzer_Error_Kind, loc := #caller_location) {
+expect_kind :: proc(
+	t: ^testing.T,
+	source: string,
+	kind: Analyzer_Error_Kind,
+	loc := #caller_location,
+) {
 	err := check(source)
 	e, ok := err.?
 	testing.expectf(t, ok, "%q: expected a %v error, got none", source, kind, loc = loc)
@@ -740,6 +839,18 @@ expect_kind :: proc(t: ^testing.T, source: string, kind: Analyzer_Error_Kind, lo
 expect_ok :: proc(t: ^testing.T, source: string, loc := #caller_location) {
 	err := check(source)
 	testing.expectf(t, err == nil, "%q: unexpected error %v", source, err, loc = loc)
+}
+
+@(private)
+expect_message :: proc(t: ^testing.T, source, expected: string, loc := #caller_location) {
+	err := check(source)
+	e, ok := err.?
+	testing.expectf(t, ok, "%q: expected an analyzer error, got none", source, loc = loc)
+	if !ok do return
+
+	message := error_message(e, source)
+	defer delete(message)
+	testing.expectf(t, message == expected, "got %q, want %q", message, expected, loc = loc)
 }
 
 @(private)

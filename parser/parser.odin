@@ -129,6 +129,7 @@ parse_stmt :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 
 	expr_stmt := new(syntax.Expr_Stmt, allocator = p.allocator)
 	expr_stmt.expr = expr
+	expr_stmt.span = expr.span
 
 	return expr_stmt, nil
 }
@@ -160,6 +161,7 @@ parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (syntax.Stmt, Maybe(Pa
 }
 
 parse_if :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	keyword := current(p)
 	advance(p) // consume `if`
 
 	condition, cond_err := parse_expr(p)
@@ -189,16 +191,23 @@ parse_if :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	}
 
 	stmt := new(syntax.If_Stmt, allocator = p.allocator)
+	end_span := syntax.span_of_stmt(then_block)
+	if else_stmt, ok := else_branch.?; ok {
+		end_span = syntax.span_of_stmt(else_stmt)
+	}
 	stmt^ = syntax.If_Stmt {
+		keyword     = keyword,
 		condition   = condition,
 		then_block  = then_block,
 		else_branch = else_branch,
+		span        = syntax.span_join(keyword.span, end_span),
 	}
 
 	return stmt, nil
 }
 
 parse_return :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	keyword := current(p)
 	advance(p) // consume `return`
 
 	exprs: [dynamic]^syntax.Expr
@@ -211,7 +220,12 @@ parse_return :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	}
 
 	stmt := new(syntax.Return_Stmt, allocator = p.allocator)
+	stmt.keyword = keyword
 	stmt.exprs = exprs
+	stmt.span = keyword.span
+	if len(exprs) > 0 {
+		stmt.span = syntax.span_join(keyword.span, exprs[len(exprs) - 1].span)
+	}
 
 	return stmt, nil
 }
@@ -226,6 +240,7 @@ terminates_statement :: proc(kind: syntax.Token_Kind) -> bool {
 // Expects the cursor positioned at the '=' operator, with the target names
 // already collected by the caller.
 parse_ident_assignment :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	op := current(p)
 	advance(p) // '='
 
 	value, err := parse_ident_rhs(p)
@@ -234,6 +249,8 @@ parse_ident_assignment :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syn
 	stmt := new(syntax.Ident_Assignment_Stmt, allocator = p.allocator)
 	stmt.value = value
 	stmt.names = names
+	stmt.op = op
+	stmt.span = syntax.span_join(names[0].span, value[len(value) - 1].span)
 	return stmt, nil
 }
 
@@ -289,6 +306,7 @@ parse_multi_target :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 
 parse_decl :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	stmt: syntax.Stmt
+	op := current(p)
 	#partial switch current(p).kind {
 	case .Colon_Equal:
 		advance(p) // ':='
@@ -301,7 +319,9 @@ parse_decl :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Ma
 			names    = names,
 			value    = value,
 			constant = false,
+			op       = op,
 			type     = nil,
+			span     = syntax.span_join(names[0].span, value[len(value) - 1].span),
 		}
 		stmt = decl_stmt
 
@@ -327,7 +347,9 @@ parse_decl :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Ma
 			names    = names,
 			value    = value,
 			constant = true,
+			op       = op,
 			type     = nil,
+			span     = syntax.span_join(names[0].span, value[len(value) - 1].span),
 		}
 		stmt = decl_stmt
 
@@ -359,11 +381,17 @@ parse_decl :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Ma
 		}
 
 		decl_stmt := new(syntax.Ident_Decl_Stmt, allocator = p.allocator)
+		end_span := decl_type.span
+		if rhs, ok := value.?; ok && len(rhs) > 0 {
+			end_span = rhs[len(rhs) - 1].span
+		}
 		decl_stmt^ = syntax.Ident_Decl_Stmt {
 			names    = names,
 			value    = value,
 			constant = constant,
+			op       = op,
 			type     = decl_type,
+			span     = syntax.span_join(names[0].span, end_span),
 		}
 		stmt = decl_stmt
 
@@ -405,12 +433,14 @@ parse_fn_decl_stmt :: proc(p: ^Parser, name: syntax.Token, type: Maybe(syntax.Ty
 		name = name,
 		lit  = lit,
 		type = type,
+		span = syntax.span_join(name.span, lit.span),
 	}
 
 	return stmt, nil
 }
 
 parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)) {
+	start := current(p)
 	async := false
 	if current(p).kind == .Keyword && current(p).keyword == .Async {
 		async = true
@@ -457,7 +487,9 @@ parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)
 		}
 	}
 
+	params_close := current(p)
 	advance(p) // consume ')'
+	end_span := params_close.span
 
 	// Return(s)
 	return_type: Maybe([dynamic]syntax.Type)
@@ -467,8 +499,10 @@ parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)
 		skip_trivia(p)
 
 		returns: Maybe(Parser_Error)
-		return_type, returns = parse_returns(p)
+		return_span: syntax.Span
+		return_type, return_span, returns = parse_returns(p)
 		if returns != nil do return {}, returns
+		end_span = return_span
 	}
 
 	block_stmt: Maybe(^syntax.Block_Stmt)
@@ -480,26 +514,29 @@ parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)
 		assert(ok)
 	}
 
+	if block, ok := block_stmt.?; ok {
+		end_span = block.span
+	}
+
 	return syntax.Fn_Literal_Expr {
-		block = block_stmt,
-		async = async,
-		args = args,
+		block       = block_stmt,
+		async       = async,
+		args        = args,
 		return_type = return_type,
+		span        = syntax.span_join(start.span, end_span),
 	}, nil
 }
 
 parse_type :: proc(p: ^Parser) -> (syntax.Type, Maybe(Parser_Error)) {
-	start := current(p)
-
 	if is_fn_keyword(current(p)) {
 		ref, err := parse_fn_type(p)
 		if err != nil do return {}, err
-		return syntax.Type{variant = ref, span = make_span(start, p)}, nil
+		return syntax.Type{variant = ref, span = ref.span}, nil
 
 	} else if current(p).kind == .Ident {
 		tok := current(p)
 		advance(p) // the type name
-		return syntax.Type{variant = tok, span = make_span(start, p)}, nil
+		return syntax.Type{variant = tok, span = tok.span}, nil
 	}
 
 	return {}, Parser_Error {
@@ -511,6 +548,7 @@ parse_type :: proc(p: ^Parser) -> (syntax.Type, Maybe(Parser_Error)) {
 
 // Similar to parse_fn_lit but no body and no arg names
 parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
+	start := current(p)
 	async := false
 	if current(p).kind == .Keyword && current(p).keyword == .Async {
 		async = true
@@ -563,7 +601,9 @@ parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
 			token   = current(p),
 		}
 	}
+	params_close := current(p)
 	advance(p) // ')'
+	end_span := params_close.span
 
 	returns := make([dynamic]syntax.Type, allocator = p.allocator)
 	if next, ok := next(p); ok && current(p).kind == .Minus && next.kind == .Greater {
@@ -571,28 +611,35 @@ parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
 		advance(p) // '>'
 		skip_trivia(p)
 
-		rets, err := parse_returns(p)
+		rets, return_span, err := parse_returns(p)
 		if err != nil do return {}, err
 		if r, ok := rets.?; ok {
 			returns = r
 		}
+		end_span = return_span
 	}
 
-	return syntax.Fn_Type{params = params, returns = returns, async = async}, nil
+	return syntax.Fn_Type {
+		params  = params,
+		returns = returns,
+		async   = async,
+		span    = syntax.span_join(start.span, end_span),
+	}, nil
 }
 
-parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), Maybe(Parser_Error)) {
+parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), syntax.Span, Maybe(Parser_Error)) {
 	returns := make([dynamic]syntax.Type, allocator = p.allocator)
 
 	// Single, unparenthesized return type
 	if current(p).kind != .Left_Paren {
 		ret, err := parse_type(p)
-		if err != nil do return nil, err
+		if err != nil do return nil, {}, err
 		append(&returns, ret)
-		return returns, nil
+		return returns, ret.span, nil
 	}
 
 	// Parenthesized list of return types
+	open := current(p)
 	advance(p) // consume '('
 	for {
 		skip_trivia(p)
@@ -601,7 +648,7 @@ parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), Maybe(Parser_
 		}
 
 		ret, err := parse_type(p)
-		if err != nil do return nil, err
+		if err != nil do return nil, {}, err
 		append(&returns, ret)
 
 		skip_trivia(p)
@@ -613,15 +660,16 @@ parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), Maybe(Parser_
 
 	skip_trivia(p)
 	if current(p).kind != .Right_Paren {
-		return nil, Parser_Error {
+		return nil, {}, Parser_Error {
 			kind    = .Unexpected_Token,
 			message = "expected a ')' to end function return types",
 			token   = current(p),
 		}
 	}
+	close := current(p)
 	advance(p) // consume ')'
 
-	return returns, nil
+	return returns, syntax.span_join(open.span, close.span), nil
 }
 
 // nocheckin: Check the trailing commma dunno what happens currently
@@ -655,7 +703,11 @@ parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.
 
 		arg_type, type_err := parse_type(p)
 		if type_err != nil do return nil, type_err
-		append(&args, syntax.Fn_Arg{ name = arg_name, type = arg_type })
+		append(&args, syntax.Fn_Arg {
+			name = arg_name,
+			type = arg_type,
+			span = syntax.span_join(arg_name.span, arg_type.span),
+		})
 
 		skip_trivia(p)
 
@@ -669,7 +721,7 @@ parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.
 	return args, nil
 }
 
-parse_call :: proc(p: ^Parser) -> (syntax.Token, [dynamic]^syntax.Expr, Maybe(Parser_Error)) {
+parse_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) {
 	name := current(p)
 	advance(p) // name
 	advance(p) // '('
@@ -682,7 +734,7 @@ parse_call :: proc(p: ^Parser) -> (syntax.Token, [dynamic]^syntax.Expr, Maybe(Pa
 		}
 
 		expr, err := parse_expr(p)
-		if err != nil do return {}, nil, err
+		if err != nil do return {}, err
 
 		append(&args, expr)
 
@@ -694,28 +746,31 @@ parse_call :: proc(p: ^Parser) -> (syntax.Token, [dynamic]^syntax.Expr, Maybe(Pa
 	}
 
 	if current(p).kind != .Right_Paren {
-		return name, args, Parser_Error {
+		return {}, Parser_Error {
 			kind    = .Unexpected_Token,
 			message = "expected ')' to end function call arguments",
 			token   = current(p),
 		}
 	}
+	close := current(p)
 	advance(p) // ')'
 
-	return name, args, nil
+	return syntax.Fn_Call_Expr {
+		name    = name,
+		args    = args,
+		awaited = false, // nocheckin
+		span    = syntax.span_join(name.span, close.span),
+	}, nil
 }
 
 parse_fn_call :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
-	name, args, err := parse_call(p)
+	call, err := parse_call(p)
 	if err != nil do return nil, err
 
 	stmt := new(syntax.Fn_Call_Stmt, allocator = p.allocator)
 	stmt^ = syntax.Fn_Call_Stmt {
-		call = syntax.Fn_Call_Expr {
-			name = name,
-			args = args,
-			awaited = false, // nocheckin
-		}
+		call = call,
+		span = call.span,
 	}
 
 	return stmt, nil
@@ -739,8 +794,12 @@ parse_block :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 
 		tok := current(p)
 		if tok.kind == .Right_Brace {
+			close := tok
 			advance(p)
-			break
+			stmt := new(syntax.Block_Stmt, allocator = p.allocator)
+			stmt.stmts = inner[:]
+			stmt.span = syntax.span_join(open.span, close.span)
+			return stmt, nil
 		}
 		if tok.kind == .EOF {
 			return nil, Parser_Error {
@@ -758,9 +817,7 @@ parse_block :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 		if term_err != nil do return nil, term_err
 	}
 
-	stmt := new(syntax.Block_Stmt, allocator = p.allocator)
-	stmt.stmts = inner[:]
-	return stmt, nil
+	unreachable()
 }
 
 parse_expr :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
@@ -771,7 +828,6 @@ parse_expr :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_logic_or :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	start := current(p)
 	expr, err := parse_logic_and(p)
 	if err != nil do return expr, err
 
@@ -788,8 +844,8 @@ parse_logic_or :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Logical_Expr{left = expr, op = .Or, right = right},
-			span = make_span(start, p),
+			expr = syntax.Logical_Expr{left = expr, op = .Or, op_span = tok.span, right = right},
+			span = syntax.span_join(expr.span, right.span),
 		}
 		expr = result
 	}
@@ -798,7 +854,6 @@ parse_logic_or :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_logic_and :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	start := current(p)
 	expr, err := parse_equality(p)
 	if err != nil do return expr, err
 
@@ -815,8 +870,8 @@ parse_logic_and :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Logical_Expr{left = expr, op = .And, right = right},
-			span = make_span(start, p),
+			expr = syntax.Logical_Expr{left = expr, op = .And, op_span = tok.span, right = right},
+			span = syntax.span_join(expr.span, right.span),
 		}
 		expr = result
 	}
@@ -825,7 +880,6 @@ parse_logic_and :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_equality :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	start := current(p)
 	expr, err := parse_comparison(p)
 	if err != nil do return expr, err
 
@@ -842,8 +896,8 @@ parse_equality :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
-			span = make_span(start, p),
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, op_span = current_token.span, right = right},
+			span = syntax.span_join(expr.span, right.span),
 		}
 		expr = result
 	}
@@ -852,7 +906,6 @@ parse_equality :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_comparison :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	start := current(p)
 	expr, err := parse_term(p)
 	if err != nil do return expr, err
 
@@ -869,8 +922,8 @@ parse_comparison :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
-			span = make_span(start, p),
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, op_span = current_token.span, right = right},
+			span = syntax.span_join(expr.span, right.span),
 		}
 		expr = result
 	}
@@ -879,7 +932,6 @@ parse_comparison :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_term :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	start := current(p)
 	expr, err := parse_factor(p)
 	if err != nil do return expr, err
 
@@ -896,8 +948,8 @@ parse_term :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
-			span = make_span(start, p),
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, op_span = current_token.span, right = right},
+			span = syntax.span_join(expr.span, right.span),
 		}
 		expr = result
 	}
@@ -906,7 +958,6 @@ parse_term :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 }
 
 parse_factor :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
-	start := current(p)
 	expr, err := parse_unary(p)
 	if err != nil do return expr, err
 
@@ -923,8 +974,8 @@ parse_factor :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, right = right},
-			span = make_span(start, p),
+			expr = syntax.Binary_Expr{left = expr, op = current_token.kind, op_span = current_token.span, right = right},
+			span = syntax.span_join(expr.span, right.span),
 		}
 		expr = result
 	}
@@ -950,8 +1001,8 @@ parse_unary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		result := new(syntax.Expr, allocator = p.allocator)
 		result^ = syntax.Expr {
-			expr = syntax.Unary_Expr{op = current_token.kind, right = right},
-			span = make_span(current_token, p),
+			expr = syntax.Unary_Expr{op = current_token.kind, op_span = current_token.span, right = right},
+			span = syntax.span_join(current_token.span, right.span),
 		}
 		return result, nil
 	}
@@ -975,24 +1026,23 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 	case .Literal:
 		result := syntax.Expr {
 			expr = syntax.Literal_Expr{token = tok},
+			span = tok.span,
 		}
 		expr^ = result
 		advance(p)
 
 	case .Ident:
 		if n, ok := next(p); ok && n.kind == .Left_Paren { // function call
-			name, args, err := parse_call(p)
+			call, err := parse_call(p)
 			if err != nil do return expr, err
 			expr^ = syntax.Expr {
-				expr = syntax.Fn_Call_Expr{
-					name = name,
-					args = args,
-					awaited = false // nocheckin
-				},
+				expr = call,
+				span = call.span,
 			}
 		} else {
 			expr^ = syntax.Expr {
 				expr = syntax.Ident_Expr{token = tok},
+				span = tok.span,
 			}
 			advance(p)
 		}
@@ -1002,12 +1052,12 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		expr_inner, err := parse_expr(p)
 		if err != nil do return expr, err
 
-		current_token := current(p)
-		if current_token.kind == .EOF || current_token.kind != .Right_Paren {
+		close := current(p)
+		if close.kind == .EOF || close.kind != .Right_Paren {
 			return expr, Parser_Error {
 				kind = .Unclosed_Paren,
 				message = "Expected a \")\" token",
-				token = current_token,
+				token = close,
 			}
 		}
 
@@ -1015,6 +1065,7 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 		expr^ = syntax.Expr {
 			expr = syntax.Grouping_Expr{expr = expr_inner},
+			span = syntax.span_join(tok.span, close.span),
 		}
 
 	case .Keyword:
@@ -1031,6 +1082,7 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 		if err != nil do return expr, err
 		expr^ = syntax.Expr {
 			expr = lit,
+			span = lit.span,
 		}
 
 	case:
@@ -1042,9 +1094,6 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 	}
 
-	// tok is the first token of the this expression.
-	// The cursor has passed the expression so make_span taks the prev as the end
-	expr.span = make_span(tok, p)
 	return expr, nil
 }
 
@@ -1065,14 +1114,6 @@ next :: proc(p: ^Parser) -> (syntax.Token, bool) {
 	}
 
 	return p.tokens[p.current + 1], true
-}
-
-prev_token :: proc(p: ^Parser) -> syntax.Token {
-	return p.tokens[max(p.current - 1, 0)]
-}
-
-make_span :: proc(start: syntax.Token, p: ^Parser) -> syntax.Span {
-	return syntax.Span{start = start.lexeme_start, end = prev_token(p).lexeme_end}
 }
 
 is_at_end :: proc(p: ^Parser) -> bool {
@@ -1141,8 +1182,7 @@ reject_fn_literals :: proc(exprs: [dynamic]^syntax.Expr) -> Maybe(Parser_Error) 
 				kind    = .Fn_In_Multi_Decl,
 				message = "a function definition must bind a single name; it cannot appear in a multi-name '::' declaration",
 				token   = syntax.Token {
-					lexeme_start = expr.span.start,
-					lexeme_end   = expr.span.end,
+					span = expr.span,
 				},
 			}
 		}
@@ -1200,8 +1240,8 @@ format_error :: proc(err: Parser_Error, source: string, allocator := context.all
 		return fmt.aprintf("error: %s\n", err.message, allocator = allocator)
 	}
 
-	start := clamp(err.token.lexeme_start, 0, len(source))
-	end   := clamp(err.token.lexeme_end,   start, len(source))
+	start := clamp(err.token.span.start, 0, len(source))
+	end   := clamp(err.token.span.end,   start, len(source))
 
 	line_start := 0
 	for i := start - 1; i >= 0; i -= 1 {
@@ -1251,7 +1291,7 @@ format_error :: proc(err: Parser_Error, source: string, allocator := context.all
 
 	write_repeat(&b, ' ', gutter + 1)
 	strings.write_string(&b, " | ")
-	write_repeat(&b, ' ', column - 1)
+	write_source_padding(&b, source[line_start:start])
 	write_repeat(&b, '^', caret_count)
 	if hint != nil {
 		strings.write_byte(&b, ' ')
@@ -1260,6 +1300,13 @@ format_error :: proc(err: Parser_Error, source: string, allocator := context.all
 	strings.write_byte(&b, '\n')
 
 	return strings.to_string(b) // @Allocation
+}
+
+@(private)
+write_source_padding :: proc(b: ^strings.Builder, source_prefix: string) {
+	for i in 0..<len(source_prefix) {
+		strings.write_byte(b, source_prefix[i] == '\t' ? '\t' : ' ')
+	}
 }
 
 @(private)

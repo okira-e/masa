@@ -16,7 +16,7 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 		strings.write_string(b, st.constant ? "::" : ":=")
 		for name in st.names {
 			strings.write_byte(b, ' ')
-			strings.write_string(b, source[name.lexeme_start:name.lexeme_end])
+			strings.write_string(b, source[name.span.start:name.span.end])
 		}
 
 		value, ok := st.value.?
@@ -30,14 +30,14 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 
 	case ^syntax.Fn_Decl_Stmt:
 	    strings.write_string(b, "(fn ")
-	    name := source[st.name.lexeme_start:st.name.lexeme_end]
+	    name := source[st.name.span.start:st.name.span.end]
 	    strings.write_string(b, name)
 
 	    if receiver, ok := st.receiver.?; ok {
 	        strings.write_string(b, " (receiver ")
 	        strings.write_string(b, receiver.param_name)
 	        strings.write_byte(b, ' ')
-	        on := source[receiver.on.lexeme_start:receiver.on.lexeme_end]
+	        on := source[receiver.on.span.start:receiver.on.span.end]
 	        strings.write_string(b, on)
 	        strings.write_byte(b, ')')
 	    }
@@ -54,7 +54,7 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 		strings.write_string(b, "=")
 		for name in st.names {
 			strings.write_byte(b, ' ')
-			strings.write_string(b, source[name.lexeme_start:name.lexeme_end])
+			strings.write_string(b, source[name.span.start:name.span.end])
 		}
 		build_ast_from_ident_rhs(b, source, st.value)
 		strings.write_byte(b, ')')
@@ -98,7 +98,7 @@ build_ast_from_ident_rhs :: proc(b: ^strings.Builder, source: string, rhs: [dyna
 build_ast_from_fn_call :: proc(b: ^strings.Builder, source: string, call: ^syntax.Fn_Call_Stmt) {
 	strings.write_string(b, "(call ")
 	if call.call.awaited do strings.write_string(b, "await ")
-	strings.write_string(b, source[call.call.name.lexeme_start:call.call.name.lexeme_end])
+	strings.write_string(b, source[call.call.name.span.start:call.call.name.span.end])
 	for arg in call.call.args {
 		strings.write_byte(b, ' ')
 		build_ast_from_expr(b, source, arg)

@@ -76,7 +76,7 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 		case '!':
 			next, ok := peek_next(l, source)
 			if ok && next == '=' {
-				new_token := make_token(l, l.current, .Bang_Equal, nil, nil)
+				new_token := make_token(l, l.current + 1, .Bang_Equal, nil, nil)
 				append(&tokens, new_token)
 
 				l.current += 1
@@ -89,13 +89,13 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 		case ':':
 			next, ok := peek_next(l, source)
 			if ok && next == '=' {
-				new_token := make_token(l, l.current, .Colon_Equal, nil, nil)
+				new_token := make_token(l, l.current + 1, .Colon_Equal, nil, nil)
 				append(&tokens, new_token)
 
 				l.current += 1
 				l.column += 1
 			} else if ok && next == ':' {
-				new_token := make_token(l, l.current, .Colon_Colon, nil, nil)
+				new_token := make_token(l, l.current + 1, .Colon_Colon, nil, nil)
 				append(&tokens, new_token)
 
 				l.current += 1
@@ -131,7 +131,7 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 		case '=':
 			next, ok := peek_next(l, source)
 			if ok && next == '=' {
-				new_token := make_token(l, l.current, .Equal_Equal, nil, nil)
+				new_token := make_token(l, l.current + 1, .Equal_Equal, nil, nil)
 				append(&tokens, new_token)
 				l.current += 1
 				l.column += 1
@@ -143,7 +143,7 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 		case '<':
 			next, ok := peek_next(l, source)
 			if ok && next == '=' {
-				new_token := make_token(l, l.current, .Less_Equal, nil, nil)
+				new_token := make_token(l, l.current + 1, .Less_Equal, nil, nil)
 				append(&tokens, new_token)
 				l.current += 1
 				l.column += 1
@@ -155,7 +155,7 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 		case '>':
 			next, ok := peek_next(l, source)
 			if ok && next == '=' {
-				new_token := make_token(l, l.current, .Greater_Equal, nil, nil)
+				new_token := make_token(l, l.current + 1, .Greater_Equal, nil, nil)
 				append(&tokens, new_token)
 				l.current += 1
 				l.column += 1
@@ -312,11 +312,10 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 	}
 
 	append(&tokens, syntax.Token{
-		line         = l.line,
-		column       = l.column,
-		lexeme_start = len(source),
-		lexeme_end   = len(source),
-		kind         = .EOF,
+		line   = l.line,
+		column = l.column,
+		span   = {start = len(source), end = len(source)},
+		kind   = .EOF,
 	})
 
 	return tokens, err
@@ -331,13 +330,12 @@ make_token :: proc(
 	keyword: Maybe(syntax.Keyword),
 ) -> syntax.Token {
 	return syntax.Token {
-		kind = kind,
-		lexeme_start = l.last_lexeme_start,
-		lexeme_end = current + 1,
-		line = l.line,
-		column = l.column,
+		kind         = kind,
+		span         = {start = l.last_lexeme_start, end = current + 1},
+		line         = l.line,
+		column       = l.column,
 		literal_kind = literal_kind,
-		keyword = keyword,
+		keyword      = keyword,
 	}
 }
 
@@ -443,7 +441,7 @@ format_error :: proc(err: Lexer_Error, source: string, allocator := context.allo
 
 	write_repeat(&b, ' ', gutter + 1)
 	strings.write_string(&b, " | ")
-	write_repeat(&b, ' ', column - 1)
+	write_source_padding(&b, source[line_start:start])
 	write_repeat(&b, '^', caret_count)
 	if hint != "" {
 		strings.write_byte(&b, ' ')
@@ -452,6 +450,13 @@ format_error :: proc(err: Lexer_Error, source: string, allocator := context.allo
 	strings.write_byte(&b, '\n')
 
 	return strings.to_string(b) // @allocation
+}
+
+@(private)
+write_source_padding :: proc(b: ^strings.Builder, source_prefix: string) {
+	for i in 0..<len(source_prefix) {
+		strings.write_byte(b, source_prefix[i] == '\t' ? '\t' : ' ')
+	}
 }
 
 @(private)

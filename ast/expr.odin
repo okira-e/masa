@@ -15,8 +15,8 @@ build_ast_from_expr :: proc(b: ^strings.Builder, source: string, expr: ^syntax.E
 			if source != "" {
 				lexeme = get_lexeme_from_source(
 					source,
-					expr.token.lexeme_start,
-					expr.token.lexeme_end,
+					expr.token.span.start,
+					expr.token.span.end,
 				)
 			}
 			strings.write_string(b, lexeme)
@@ -24,7 +24,7 @@ build_ast_from_expr :: proc(b: ^strings.Builder, source: string, expr: ^syntax.E
 	case syntax.Unary_Expr:
 		{
 			strings.write_byte(b, '(')
-			strings.write_string(b, get_string_for_op(expr.op))
+				strings.write_string(b, get_string_for_op(expr.op))
 			strings.write_byte(b, ' ')
 			build_ast_from_expr(b, source, expr.right)
 			strings.write_byte(b, ')')
@@ -32,7 +32,7 @@ build_ast_from_expr :: proc(b: ^strings.Builder, source: string, expr: ^syntax.E
 	case syntax.Binary_Expr:
 		{
 			strings.write_byte(b, '(')
-			strings.write_string(b, get_string_for_op(expr.op))
+				strings.write_string(b, get_string_for_op(expr.op))
 			strings.write_byte(b, ' ')
 			build_ast_from_expr(b, source, expr.left)
 			strings.write_byte(b, ' ')
@@ -50,15 +50,15 @@ build_ast_from_expr :: proc(b: ^strings.Builder, source: string, expr: ^syntax.E
 		{
 			lexeme := get_lexeme_from_source(
 				source,
-				expr.token.lexeme_start,
-				expr.token.lexeme_end,
+				expr.token.span.start,
+				expr.token.span.end,
 			)
 			strings.write_string(b, lexeme)
 		}
 	case syntax.Logical_Expr:
 		{
 			strings.write_byte(b, '(')
-			strings.write_string(b, expr.op == .And ? "and" : "or")
+				strings.write_string(b, expr.op == .And ? "and" : "or")
 			strings.write_byte(b, ' ')
 			build_ast_from_expr(b, source, expr.left)
 			strings.write_byte(b, ' ')
@@ -68,7 +68,7 @@ build_ast_from_expr :: proc(b: ^strings.Builder, source: string, expr: ^syntax.E
 	case syntax.Fn_Call_Expr:
 		{
 			strings.write_string(b, "(call ")
-			strings.write_string(b, get_lexeme_from_source(source, expr.name.lexeme_start, expr.name.lexeme_end))
+			strings.write_string(b, get_lexeme_from_source(source, expr.name.span.start, expr.name.span.end))
 			for arg in expr.args {
 				strings.write_byte(b, ' ')
 				build_ast_from_expr(b, source, arg)
@@ -94,7 +94,7 @@ build_ast_from_fn_lit :: proc(b: ^strings.Builder, source: string, lit: syntax.F
 	strings.write_string(b, " (args")
 	for arg in lit.args {
 		strings.write_byte(b, ' ')
-		strings.write_string(b, source[arg.name.lexeme_start:arg.name.lexeme_end])
+		strings.write_string(b, source[arg.name.span.start:arg.name.span.end])
 		strings.write_byte(b, ':')
 		build_ast_from_type(b, source, arg.type)
 	}
@@ -121,7 +121,7 @@ build_ast_from_fn_lit :: proc(b: ^strings.Builder, source: string, lit: syntax.F
 build_ast_from_type :: proc(b: ^strings.Builder, source: string, t: syntax.Type) {
 	switch v in t.variant {
 	case syntax.Token:
-		strings.write_string(b, source[v.lexeme_start:v.lexeme_end])
+		strings.write_string(b, source[v.span.start:v.span.end])
 
 	case syntax.Fn_Type:
 		strings.write_string(b, "(fn")

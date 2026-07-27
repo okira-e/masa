@@ -1177,7 +1177,7 @@ test_declarations :: proc(t: ^testing.T) {
 		)
 		if test.has_type {
 			type_tok := decl_type.variant.(syntax.Token)
-			got := test.source[type_tok.lexeme_start:type_tok.lexeme_end]
+			got := test.source[type_tok.span.start:type_tok.span.end]
 			testing.expectf(
 				t,
 				got == test.type_name,
@@ -1511,6 +1511,229 @@ test_expr_spans :: proc(t: ^testing.T) {
 		got := test.source[span.start:span.end]
 		testing.expectf(t, got == test.lexeme, "%s: span covers %q, want %q", test.name, got, test.lexeme)
 	}
+}
+
+@(test)
+test_statement_spans :: proc(t: ^testing.T) {
+	tests := []struct {
+		name:     string,
+		source:   string,
+		expected: string,
+	} {
+		{name = "expression", source = "42\n", expected = "42"},
+		{name = "untyped declaration", source = "x := 5\n", expected = "x := 5"},
+		{name = "typed declaration", source = "x: number\n", expected = "x: number"},
+		{name = "assignment", source = "x = 5\n", expected = "x = 5"},
+		{name = "call", source = "foo(1)\n", expected = "foo(1)"},
+		{name = "bare return", source = "return\n", expected = "return"},
+		{name = "multi return", source = "return 1, 2\n", expected = "return 1, 2"},
+		{name = "empty block", source = "{}\n", expected = "{}"},
+		{
+			name = "multiline block",
+			source = "{\n  x := 1\n}\n",
+			expected = "{\n  x := 1\n}",
+		},
+		{name = "if else", source = "if true {} else {}\n", expected = "if true {} else {}"},
+		{name = "function stub", source = "foo :: fn()\n", expected = "foo :: fn()"},
+		{
+			name = "function declaration",
+			source = "foo :: fn(a: number) -> number {\n  return a\n}\n",
+			expected = "foo :: fn(a: number) -> number {\n  return a\n}",
+		},
+	}
+
+	for test in tests {
+		arena: mem.Dynamic_Arena
+		mem.dynamic_arena_init(&arena)
+		arena_alloc := mem.dynamic_arena_allocator(&arena)
+		defer mem.dynamic_arena_destroy(&arena)
+
+		l: lexer.Lexer
+		lexer.init(&l, arena_alloc)
+		tokens, lexer_err := lexer.scan(&l, test.source)
+		if lexer_err != nil {
+			testing.expectf(t, false, "%s: unexpected lexer error: %v", test.name, lexer_err)
+			continue
+		}
+
+		p: Parser
+		init(&p, tokens[:], arena_alloc)
+		stmts, parser_err := parse(&p)
+		if parser_err != nil {
+			testing.expectf(t, false, "%s: unexpected parser error: %v", test.name, parser_err)
+			continue
+		}
+		if len(stmts) != 1 {
+			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(stmts))
+			continue
+		}
+
+		expect_span_text(t, test.source, syntax.span_of_stmt(stmts[0]), test.expected, test.name)
+	}
+}
+
+@(test)
+test_statement_component_spans :: proc(t: ^testing.T) {
+	source := "x := foo(1)\nx = 2\nif true {}\n"
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil do return
+	testing.expectf(t, len(stmts) == 3, "expected 3 statements, got %d", len(stmts))
+	if len(stmts) != 3 do return
+
+	decl, is_decl := stmts[0].(^syntax.Ident_Decl_Stmt)
+	testing.expect(t, is_decl, "expected declaration")
+	if is_decl {
+		expect_span_text(t, source, decl.op.span, ":=", "declaration operator")
+		values, has_value := decl.value.?
+		if has_value && len(values) == 1 {
+			call, is_call := values[0].expr.(syntax.Fn_Call_Expr)
+			testing.expect(t, is_call, "expected call expression")
+			if is_call {
+				expect_span_text(t, source, call.span, "foo(1)", "call expression")
+			}
+		}
+	}
+
+	assignment, is_assignment := stmts[1].(^syntax.Ident_Assignment_Stmt)
+	testing.expect(t, is_assignment, "expected assignment")
+	if is_assignment {
+		expect_span_text(t, source, assignment.op.span, "=", "assignment operator")
+	}
+
+	if_stmt, is_if := stmts[2].(^syntax.If_Stmt)
+	testing.expect(t, is_if, "expected if statement")
+	if is_if {
+		expect_span_text(t, source, if_stmt.keyword.span, "if", "if keyword")
+	}
+}
+
+@(test)
+test_nested_node_spans :: proc(t: ^testing.T) {
+	source := "foo :: async fn(cb: fn(number) -> string) -> number {\n  return 1\n}"
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil || len(stmts) != 1 do return
+
+	decl, ok := stmts[0].(^syntax.Fn_Decl_Stmt)
+	testing.expect(t, ok, "expected Fn_Decl_Stmt")
+	if !ok do return
+
+	expect_span_text(t, source, decl.span, source, "function declaration")
+	expect_span_text(
+		t,
+		source,
+		decl.lit.span,
+		"async fn(cb: fn(number) -> string) -> number {\n  return 1\n}",
+		"function literal",
+	)
+	testing.expectf(t, len(decl.lit.args) == 1, "expected one function argument")
+	if len(decl.lit.args) != 1 do return
+
+	arg := decl.lit.args[0]
+	expect_span_text(t, source, arg.span, "cb: fn(number) -> string", "function argument")
+	expect_span_text(t, source, arg.type.span, "fn(number) -> string", "argument type")
+
+	fn_type, is_fn_type := arg.type.variant.(syntax.Fn_Type)
+	testing.expect(t, is_fn_type, "expected function argument type")
+	if is_fn_type {
+		expect_span_text(t, source, fn_type.span, "fn(number) -> string", "function type")
+	}
+
+	block, has_block := decl.lit.block.?
+	testing.expect(t, has_block, "expected function body")
+	if !has_block do return
+	expect_span_text(t, source, block.span, "{\n  return 1\n}", "function block")
+	testing.expectf(t, len(block.stmts) == 1, "expected one body statement")
+	if len(block.stmts) != 1 do return
+
+	ret, is_return := block.stmts[0].(^syntax.Return_Stmt)
+	testing.expect(t, is_return, "expected return statement")
+	if is_return {
+		expect_span_text(t, source, ret.span, "return 1", "return statement")
+		expect_span_text(t, source, ret.keyword.span, "return", "return keyword")
+	}
+}
+
+@(test)
+test_nested_expression_and_operator_spans :: proc(t: ^testing.T) {
+	source := "1 + 2 * -3 and true"
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil || len(stmts) != 1 do return
+
+	stmt, ok := stmts[0].(^syntax.Expr_Stmt)
+	testing.expect(t, ok, "expected Expr_Stmt")
+	if !ok do return
+	expect_span_text(t, source, stmt.span, source, "expression statement")
+
+	logical, is_logical := stmt.expr.expr.(syntax.Logical_Expr)
+	testing.expect(t, is_logical, "expected Logical_Expr")
+	if !is_logical do return
+	expect_span_text(t, source, logical.op_span, "and", "logical operator")
+	expect_span_text(t, source, logical.left.span, "1 + 2 * -3", "logical left")
+	expect_span_text(t, source, logical.right.span, "true", "logical right")
+
+	plus, is_plus := logical.left.expr.(syntax.Binary_Expr)
+	testing.expect(t, is_plus, "expected addition")
+	if !is_plus do return
+	expect_span_text(t, source, plus.op_span, "+", "addition operator")
+	expect_span_text(t, source, plus.left.span, "1", "addition left")
+	expect_span_text(t, source, plus.right.span, "2 * -3", "addition right")
+
+	product, is_product := plus.right.expr.(syntax.Binary_Expr)
+	testing.expect(t, is_product, "expected multiplication")
+	if !is_product do return
+	expect_span_text(t, source, product.op_span, "*", "multiplication operator")
+
+	negative, is_negative := product.right.expr.(syntax.Unary_Expr)
+	testing.expect(t, is_negative, "expected unary expression")
+	if !is_negative do return
+	expect_span_text(t, source, product.right.span, "-3", "unary expression")
+	expect_span_text(t, source, negative.op_span, "-", "unary operator")
+	expect_span_text(t, source, negative.right.span, "3", "unary operand")
 }
 
 @(test)
@@ -2159,7 +2382,24 @@ parse_single_rhs :: proc(t: ^testing.T, source: string, alloc: mem.Allocator) ->
 
 @(private = "file")
 token_text :: proc(source: string, token: syntax.Token) -> string {
-	return source[token.lexeme_start:token.lexeme_end]
+	return source[token.span.start:token.span.end]
+}
+
+@(private = "file")
+expect_span_text :: proc(
+	t: ^testing.T,
+	source: string,
+	span: syntax.Span,
+	expected, label: string,
+	loc := #caller_location,
+) {
+	if !syntax.span_is_valid(span, len(source)) {
+		testing.expectf(t, false, "%s: invalid span %v for source length %d", label, span, len(source), loc = loc)
+		return
+	}
+
+	actual := source[span.start:span.end]
+	testing.expectf(t, actual == expected, "%s: span covers %q, want %q", label, actual, expected, loc = loc)
 }
 
 // The source text an argument expression spans. Call arguments are now full
@@ -2243,11 +2483,10 @@ expect_single_call :: proc(t: ^testing.T, name: string, rhs: [dynamic]^syntax.Ex
 @(private = "file")
 make_token :: proc(kind: syntax.Token_Kind, start: int, end: int, kw: Maybe(syntax.Keyword) = nil) -> syntax.Token {
 	return syntax.Token {
-		kind = kind,
-		line = 1,
-		lexeme_start = start,
-		lexeme_end = end,
-		column = start,
+		kind    = kind,
+		line    = 1,
+		span    = {start = start, end = end},
+		column  = start,
 		keyword = kw,
 	}
 }

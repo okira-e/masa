@@ -14,8 +14,7 @@ test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
 				expr = syntax.Literal_Expr {
 					token = syntax.Token {
 						kind         = .Literal,
-						lexeme_start = 0,
-						lexeme_end   = 1, // "1"
+						span         = {start = 0, end = 1}, // "1"
 						line         = 1,
 						column       = 1,
 						literal_kind = .Number,
@@ -29,8 +28,7 @@ test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
 						expr = syntax.Literal_Expr {
 							token = syntax.Token {
 								kind         = .Literal,
-								lexeme_start = 4,
-								lexeme_end   = 5, // "2"
+								span         = {start = 4, end = 5}, // "2"
 								line         = 1,
 								column       = 5,
 								literal_kind = .Number,
@@ -46,8 +44,7 @@ test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
 										expr = syntax.Literal_Expr {
 											token = syntax.Token {
 												kind         = .Literal,
-												lexeme_start = 9,
-												lexeme_end   = 10, // "3"
+												span         = {start = 9, end = 10}, // "3"
 												line         = 1,
 												column       = 10,
 												literal_kind = .Number,
@@ -59,8 +56,7 @@ test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
 										expr = syntax.Literal_Expr {
 											token = syntax.Token {
 												kind         = .Literal,
-												lexeme_start = 13,
-												lexeme_end   = 14, // "4"
+												span         = {start = 13, end = 14}, // "4"
 												line         = 1,
 												column       = 14,
 												literal_kind = .Number,
@@ -104,8 +100,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 				expr = syntax.Literal_Expr {
 					token = syntax.Token {
 						kind         = .Literal,
-						lexeme_start = 0,
-						lexeme_end   = 2, // "42"
+						span         = {start = 0, end = 2}, // "42"
 						line         = 1,
 						column       = 1,
 						literal_kind = .Number,
@@ -124,8 +119,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 						expr = syntax.Literal_Expr {
 							token = syntax.Token {
 								kind         = .Literal,
-								lexeme_start = 1,
-								lexeme_end   = 2, // "5"
+								span         = {start = 1, end = 2}, // "5"
 								line         = 1,
 								column       = 2,
 								literal_kind = .Number,
@@ -145,8 +139,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 						expr = syntax.Literal_Expr {
 							token = syntax.Token {
 								kind         = .Literal,
-								lexeme_start = 1,
-								lexeme_end   = 2, // "5"
+								span         = {start = 1, end = 2}, // "5"
 								line         = 1,
 								column       = 2,
 								literal_kind = .Number,
@@ -166,8 +159,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 						expr = syntax.Literal_Expr {
 							token = syntax.Token {
 								kind         = .Literal,
-								lexeme_start = 0,
-								lexeme_end   = 1, // "1"
+								span         = {start = 0, end = 1}, // "1"
 								line         = 1,
 								column       = 1,
 								literal_kind = .Number,
@@ -181,8 +173,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 								expr = syntax.Literal_Expr {
 									token = syntax.Token {
 										kind         = .Literal,
-										lexeme_start = 4,
-										lexeme_end   = 5, // "2"
+										span         = {start = 4, end = 5}, // "2"
 										line         = 1,
 										column       = 5,
 										literal_kind = .Number,
@@ -194,8 +185,7 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 								expr = syntax.Literal_Expr {
 									token = syntax.Token {
 										kind         = .Literal,
-										lexeme_start = 8,
-										lexeme_end   = 9, // "3"
+										span         = {start = 8, end = 9}, // "3"
 										line         = 1,
 										column       = 9,
 										literal_kind = .Number,
@@ -232,4 +222,3 @@ test_ast_printer_basic :: proc(t: ^testing.T) {
 		}
 	}
 }
-

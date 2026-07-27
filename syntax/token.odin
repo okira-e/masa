@@ -2,9 +2,8 @@ package syntax
 
 Token :: struct {
 	kind:         Token_Kind,
-	// lexeme is the actual text of the token. Can be the variable name for identifiers.
-	lexeme_start: int,
-	lexeme_end:   int,
+	// span is authoritative; line and column cache the token's start for display/debugging.
+	span:         Span,
 	line:         int,
 	column:       int,
 	literal_kind: Maybe(Literal_Kind),
@@ -62,6 +61,7 @@ Fn_Type:: struct {
 	params:  [dynamic]Type,
 	returns: [dynamic]Type,
 	async:   bool,
+	span:    Span,
 }
 
 type_eq :: proc(a: Type, b: Type) -> bool {
