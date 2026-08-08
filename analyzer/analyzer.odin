@@ -6,16 +6,21 @@ import "core:strings"
 
 // nocheckin: Check the context.allocator allocations
 Analyzer :: struct {
-	source:        string,
-	env:           ^Scope,
+	source: string,
+	env:    ^Scope,
 
-	t_number:      ^Symbol,
-	t_string:      ^Symbol,
-	t_bool:        ^Symbol,
-	t_any:         ^Symbol,
+	t_number: ^Symbol,
+	t_string: ^Symbol,
+	t_bool:   ^Symbol,
+	t_any:    ^Symbol,
 
-	inside_func_body: bool,
-	should_return:    []Type,
+	// A stack representing if we're inside a function and what it should return
+	fn_contexts: [dynamic]Fn_Context,
+}
+
+Fn_Context :: struct {
+	return_types: []Type,
+	async:        bool,
 }
 
 Scope :: struct {
@@ -75,9 +80,13 @@ init :: proc(a: ^Analyzer, source: string) {
 	a.t_any    = declare_type(universe, "any")
 
 	a.env = make_scope(universe)
+	a.fn_contexts = make([dynamic]Fn_Context)
 }
 
 destroy :: proc(a: ^Analyzer) {
+	assert(len(a.fn_contexts) == 0)
+	delete(a.fn_contexts)
+
 	current: Maybe(^Scope) = a.env
 	for current != nil {
 		s := current.?
@@ -94,6 +103,15 @@ analyze :: proc(a: ^Analyzer, stmts: []syntax.Stmt) -> Maybe(Analyzer_Error) {
 	}
 
 	return nil
+}
+
+inside_function :: proc(a: ^Analyzer) -> bool {
+	return len(a.fn_contexts) > 0
+}
+
+current_fn_context :: proc(a: ^Analyzer) -> Fn_Context {
+	assert(inside_function(a))
+	return a.fn_contexts[len(a.fn_contexts) - 1]
 }
 
 check_stmt :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> Maybe(Analyzer_Error) {
@@ -124,7 +142,7 @@ check_stmt :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> Maybe(Analyzer_Error) {
 		return check_block_stmt(a, stmt, false, []Type{}, []Block_Capture{})
 
 	case ^syntax.Return_Stmt:
-		if !a.inside_func_body {
+		if !inside_function(a) {
 			return analyzer_error(.Return_Outside_Function, stmt.keyword.span)
 		}
 
@@ -150,8 +168,8 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 
 	if stmt.constant && stmt.type == nil {
 		if val, ok := stmt.value.?; ok {
-			is_type_alias_decl := true
-			if len(val) == len(stmt.names) {
+			is_type_alias_decl := len(val) == len(stmt.names)
+			if is_type_alias_decl {
 				for value in val {
 					rhs, is_ident := value.expr.(syntax.Ident_Expr)
 					if !is_ident {
@@ -207,25 +225,33 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 
 	declared_type: Maybe(Type) = nil
 	if type, has_declared_type := stmt.type.?; has_declared_type {
-		resolved_type, err := resolve_type(a, type)
+		t, err := resolve_type(a, type)
 		if err != nil do return err
-		declared_type = resolved_type
+		declared_type = t
 	}
 
-	value_type: Maybe(Type) = nil
+	checked_values: [dynamic]Checked_Value
 	if stmt_values, has := stmt.value.?; has {
-		for value, i in stmt_values {
-			type, err := check_single_expr(a, value)
-			if err != nil do return err
-			if i == 0 {
-				value_type = type
-			}
+		values, err := check_expr_list(a, stmt_values[:])
+		if err != nil do return err
+		checked_values = values
 
-			if declared_type, ok := declared_type.?; ok {
-				match, match_err := type_eq(declared_type, type)
+		if len(checked_values) != len(stmt.names) {
+			return analyzer_error(
+				.Target_Value_Count_Mismatch,
+				stmt.span,
+				Count_Error_Data{expected = len(stmt.names), actual = len(checked_values)},
+			)
+		}
+
+		if declared_type, ok := declared_type.?; ok {
+			for value, i in checked_values {
+				if value.type == nil do continue
+
+				match, match_err := type_eq(declared_type, value.type)
 				if match_err != nil do return match_err
 
-				if declared_type != nil && type != nil && !match {
+				if !match {
 					return analyzer_error(
 						.Type_Mismatch_On_Declaration,
 						value.span,
@@ -236,17 +262,16 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 		}
 	}
 
-	if declared_type == nil && value_type == nil {
+	if declared_type == nil && len(checked_values) == 0 {
 		first_name := stmt.names[0]
-		last_name := stmt.names[len(stmt.names) - 1]
+		last_name  := stmt.names[len(stmt.names) - 1]
 		return analyzer_error(
 			.Declaration_Type_Missing,
 			syntax.span_join(first_name.span, last_name.span),
 		)
 	}
 
-	final_type := declared_type != nil ? declared_type.? : value_type.? // one has to exist
-	for name_token in stmt.names {
+	for name_token, i in stmt.names {
 		name := a.source[name_token.span.start:name_token.span.end]
 
 		// Since shadowing is allowed, check only the current scope for duplicates
@@ -258,10 +283,22 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 			)
 		}
 
+		final_type: Type
+		if declared_type, ok := declared_type.?; ok {
+			final_type = declared_type
+		} else {
+			assert(len(checked_values) == len(stmt.names))
+			final_type = checked_values[i].type
+			if final_type == nil {
+				return analyzer_error(.Declaration_Type_Missing, name_token.span)
+			}
+		}
+
 		sym := new_symbol(
 			Var_Symbol{constant = stmt.constant, decl_token = name_token, type = final_type},
 		)
-		stmt.decl_kind = .Value
+
+		stmt.decl_kind = .Value // As opposed to a type alias
 
 		append(&a.env.owned_symbols, sym)
 		a.env.symbols[name] = sym
@@ -271,6 +308,101 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 }
 
 check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(Analyzer_Error) {
+
+	// Type check
+	if declared_type, ok := stmt.type.?; ok {
+		declared_fn_type, is_fn_type := declared_type.variant.(syntax.Fn_Type)
+		if !is_fn_type {
+			return analyzer_error(
+				.Fn_Declaration_Signature_Mismatch,
+				declared_type.span,
+				Fn_Declaration_Signature_Error_Data{reason = .Declared_Type},
+			)
+		}
+		signature_span := stmt.lit.span
+		if block, has_block := stmt.lit.block.?; has_block {
+			signature_span.end = block.span.start
+		}
+
+		if declared_fn_type.async != stmt.lit.async {
+			return analyzer_error(
+				.Fn_Declaration_Signature_Mismatch,
+				signature_span,
+				Fn_Declaration_Signature_Error_Data{reason = .Async},
+			)
+		}
+
+		if len(declared_fn_type.params) != len(stmt.lit.args) {
+			return analyzer_error(
+				.Fn_Declaration_Signature_Mismatch,
+				signature_span,
+				Fn_Declaration_Signature_Error_Data {
+					reason   = .Parameter_Count,
+					expected = len(declared_fn_type.params),
+					actual   = len(stmt.lit.args),
+				},
+			)
+		}
+
+		for param, i in declared_fn_type.params {
+			param_t, err1 := resolve_type(a, param)
+			if err1 != nil do return err1
+			arg_t, err2 := resolve_type(a, stmt.lit.args[i].type)
+			if err2 != nil do return err2
+
+			matches, err := type_eq(param_t, arg_t)
+			if err != nil do return err
+
+			if !matches {
+				return analyzer_error(
+					.Fn_Declaration_Signature_Mismatch,
+					stmt.lit.args[i].type.span,
+					Fn_Declaration_Signature_Error_Data {
+						reason = .Parameter_Type,
+						index  = i,
+					},
+				)
+			}
+		}
+
+		actual_returns: [dynamic]syntax.Type
+		if returns, has_returns := stmt.lit.return_type.?; has_returns {
+			actual_returns = returns
+		}
+
+		if len(declared_fn_type.returns) != len(actual_returns) {
+			return analyzer_error(
+				.Fn_Declaration_Signature_Mismatch,
+				signature_span,
+				Fn_Declaration_Signature_Error_Data {
+					reason   = .Return_Count,
+					expected = len(declared_fn_type.returns),
+					actual   = len(actual_returns),
+				},
+			)
+		}
+
+		for declared_return, i in declared_fn_type.returns {
+			declared_return_t, declared_err := resolve_type(a, declared_return)
+			if declared_err != nil do return declared_err
+			actual_return_t, actual_err := resolve_type(a, actual_returns[i])
+			if actual_err != nil do return actual_err
+
+			matches, err := type_eq(declared_return_t, actual_return_t)
+			if err != nil do return err
+			if !matches {
+				return analyzer_error(
+					.Fn_Declaration_Signature_Mismatch,
+					actual_returns[i].span,
+					Fn_Declaration_Signature_Error_Data {
+						reason = .Return_Type,
+						index  = i,
+					},
+				)
+			}
+		}
+	}
+
 	name := a.source[stmt.name.span.start:stmt.name.span.end]
 	if _, exists := a.env.symbols[name]; exists {
 		return analyzer_error(
@@ -293,10 +425,6 @@ check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(An
 }
 
 check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, Maybe(Analyzer_Error)) {
-	a.inside_func_body = true
-	defer a.inside_func_body = false
-	defer a.should_return = []Type{}
-
 	//
 	// type check arguments
 	//
@@ -319,24 +447,29 @@ check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, M
 		}
 
 		seen[arg_name] = true
-		args_types[i] = arg_type
+		args_types[i]  = arg_type
 	}
 
-	for arg, i in expr.args {
-		arg_name := a.source[arg.name.span.start:arg.name.span.end]
-		sym := new_symbol(
-			Var_Symbol {
-				constant = true,
-				decl_token = arg.name,
-				type = args_types[i],
-				is_arg = true,
-			},
-		)
+	// Create symbols out of the arguments and add them to the captured_symbols only if
+	// if the block exists and this is not a stub declaration. We don't want to allocate
+	// data here that we do not use or free.
+	if expr.block != nil {
+		for arg, i in expr.args {
+			arg_name := a.source[arg.name.span.start:arg.name.span.end]
+			sym := new_symbol(
+				Var_Symbol {
+					constant   = true,
+					decl_token = arg.name,
+					type       = args_types[i],
+					is_arg     = true,
+				},
+			)
 
-		captured_symbols[i] = Block_Capture {
-			name    = arg_name,
-			sym     = sym,
-			mutable = false,
+			captured_symbols[i] = Block_Capture {
+				name    = arg_name,
+				sym     = sym,
+				mutable = false,
+			}
 		}
 	}
 
@@ -356,15 +489,16 @@ check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, M
 		}
 
 		return_types = resolved
-		if return_types, ok := return_types.?; ok {
-			a.should_return = return_types[:]
-		} else {
-			a.should_return = []Type{}
-		}
 	}
 
+	declared_returns := return_types != nil ? return_types.?[:] : []Type{}
+	append(&a.fn_contexts, Fn_Context {
+		return_types = declared_returns,
+		async        = expr.async,
+	})
+	defer pop(&a.fn_contexts)
+
 	if block, ok := expr.block.?; ok {
-		declared_returns := return_types != nil ? return_types.?[:] : []Type{}
 		err := check_block_stmt(a, block, true, declared_returns, captured_symbols[:])
 		if err != nil do return {}, err
 	}
@@ -396,16 +530,17 @@ check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> May
 		}
 	}
 
-	if len(values) != len(a.should_return) {
+	fn_context := current_fn_context(a)
+	if len(values) != len(fn_context.return_types) {
 		return analyzer_error(
 			.Return_Count_Mismatch,
 			return_stmt.span,
-			Count_Error_Data{expected = len(a.should_return), actual = len(values)},
+			Count_Error_Data{expected = len(fn_context.return_types), actual = len(values)},
 		)
 	}
 
 	for value_type, i in values {
-		matches, err := type_eq(value_type, a.should_return[i])
+		matches, err := type_eq(value_type, fn_context.return_types[i])
 		if err != nil do return err
 
 		if !matches {
@@ -451,11 +586,15 @@ check_ident_assignment :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Assignment_Stmt
 		return nil
 	}
 
-	value_types := make([dynamic]Type, allocator = context.temp_allocator)
-	for value in stmt.value {
-		value_type, err := check_single_expr(a, value)
-		if err != nil do return err
-		append(&value_types, value_type)
+	values, err := check_expr_list(a, stmt.value[:])
+	if err != nil do return err
+
+	if len(values) != len(stmt.names) {
+		return analyzer_error(
+			.Target_Value_Count_Mismatch,
+			stmt.span,
+			Count_Error_Data{expected = len(stmt.names), actual = len(values)},
+		)
 	}
 
 	for name, i in stmt.names {
@@ -484,17 +623,40 @@ check_ident_assignment :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Assignment_Stmt
 			return analyzer_error(.Variable_Constant, name.span, Name_Error_Data{role = .Variable})
 		}
 
-		value_type := value_types[min(i, len(value_types) - 1)]
+		value_type := values[i].type
+		if value_type == nil do continue
 
 		match, match_err := type_eq(var.type, value_type)
 		if match_err != nil do return match_err
 
-		if value_type != nil && !match {
+		if !match {
 			return analyzer_error(.Type_Mismatch_On_Assignment, name.span)
 		}
 	}
 
 	return nil
+}
+
+Checked_Value :: struct {
+	type: Type,
+	span: syntax.Span,
+}
+
+check_expr_list :: proc(
+	a: ^Analyzer,
+	exprs: []^syntax.Expr,
+) -> ([dynamic]Checked_Value, Maybe(Analyzer_Error)) {
+	values := make([dynamic]Checked_Value, allocator = context.temp_allocator)
+	for expr in exprs {
+		types, err := check_expr(a, expr)
+		if err != nil do return values, err
+
+		for type in types {
+			append(&values, Checked_Value{type = type, span = expr.span})
+		}
+	}
+
+	return values, nil
 }
 
 check_if_stmt :: proc(a: ^Analyzer, stmt: ^syntax.If_Stmt) -> Maybe(Analyzer_Error) {
@@ -640,19 +802,29 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, 
 		)
 	}
 
-	fn_sym, ok := sym^.(Fn_Symbol)
-	if !ok {
+	fn_type: Fn_Type
+	switch s in sym^ {
+	case Fn_Symbol:
+		if s.literal.block == nil {
+			return nil, analyzer_error(.Call_To_Stub, expr.name.span)
+		}
+		fn_type = s.type
+
+	case Var_Symbol:
+		type, callable := s.type.(Fn_Type)
+		if !callable {
+			return nil, analyzer_error(.Not_Callable, expr.name.span)
+		}
+		fn_type = type
+
+	case Type_Symbol:
 		return nil, analyzer_error(.Not_Callable, expr.name.span)
 	}
 
-	if fn_sym.literal.block == nil {
-		return nil, analyzer_error(.Call_To_Stub, expr.name.span)
-	}
-
 	// Check arguments match the declared parameters
-	if len(expr.args) != len(fn_sym.literal.args) {
+	if len(expr.args) != len(fn_type.args) {
 		data := Count_Error_Data{
-			expected = len(fn_sym.literal.args),
+			expected = len(fn_type.args),
 			actual   = len(expr.args),
 		}
 		return {}, analyzer_error(.Argument_Count_Mismatch, expr.name.span, data)
@@ -663,7 +835,7 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, 
 		arg_type, err := check_single_expr(a, passed_arg)
 		if err != nil do return nil, err
 
-		param_type := fn_sym.type.args[i]
+		param_type := fn_type.args[i]
 		assert(param_type != nil)
 
 		matches, merr := type_eq(arg_type, param_type)
@@ -678,7 +850,7 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, 
 	}
 
 
-	rets, has := fn_sym.type.return_types.?
+	rets, has := fn_type.return_types.?
 	if !has do return {}, nil // void call: no values
 
 	return rets[:], nil
@@ -1003,7 +1175,9 @@ type_eq :: proc(a: Type, b: Type) -> (bool, Maybe(Analyzer_Error)) {
 		b, ok := b.(Fn_Type)
 		if !ok do return false, nil
 
-		if a.async != b.async do return false, nil
+		if a.async != b.async {
+			return false, nil
+		}
 
 		//
 		// Args
@@ -1083,14 +1257,18 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 
 	case ^syntax.Fn_Call_Stmt:
 		name := a.source[s.call.name.span.start:s.call.name.span.end]
-		sym, err := resolve_ident(a, name)
-		fn_sym, ok := sym.(Fn_Symbol)
-		assert(ok)
-		assert(fn_sym.literal.block != nil)
+		sym, found := resolve_ident(a, name)
+		if !found do return false
+
+		fn_sym, ok := sym^.(Fn_Symbol)
+		if !ok do return false
+
+		block, has_block := fn_sym.literal.block.?
+		if !has_block || len(block.stmts) == 0 do return false
 
 		return always_terminates(
 			a,
-			fn_sym.literal.block.?.stmts[len(fn_sym.literal.block.?.stmts) - 1],
+			block.stmts[len(block.stmts) - 1],
 		)
 
 	case ^syntax.If_Stmt:
@@ -1173,6 +1351,7 @@ Analyzer_Error_Data_Value :: union {
 	Indexed_Error_Data,
 	Operator_Error_Data,
 	Illegal_Context_Error_Data,
+	Fn_Declaration_Signature_Error_Data,
 }
 
 Name_Error_Data :: struct {
@@ -1224,6 +1403,22 @@ Illegal_Context :: enum u8 {
 	Call_Argument,
 }
 
+Fn_Declaration_Signature_Error_Data :: struct {
+	reason:   Fn_Declaration_Signature_Mismatch_Reason,
+	index:    int,
+	expected: int,
+	actual:   int,
+}
+
+Fn_Declaration_Signature_Mismatch_Reason :: enum u8 {
+	Declared_Type,
+	Async,
+	Parameter_Count,
+	Parameter_Type,
+	Return_Count,
+	Return_Type,
+}
+
 Analyzer_Error_Kind :: enum u8 {
 	Undefined_Variable,
 	Undefined_Type,
@@ -1234,6 +1429,8 @@ Analyzer_Error_Kind :: enum u8 {
 	Variable_Constant,
 	Type_Mismatch_On_Assignment,
 	Type_Mismatch_On_Declaration,
+	Fn_Declaration_Signature_Mismatch,
+	Target_Value_Count_Mismatch,
 	Declaration_Type_Missing,
 	Type_In_Value_Position,
 	Operator_Type_Mismatch,
@@ -1337,6 +1534,50 @@ error_message :: proc(
 			indexed_data.index + 1,
 			allocator = allocator,
 		)
+
+	case .Fn_Declaration_Signature_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		signature_data, is_signature := data.value.(Fn_Declaration_Signature_Error_Data)
+		assert(is_signature)
+		switch signature_data.reason {
+		case .Declared_Type:
+			return fmt.aprintf(
+				"a function definition must be declared with a function type",
+				allocator = allocator,
+			)
+		case .Async:
+			return fmt.aprintf(
+				"function definition's async modifier does not match its declared type",
+				allocator = allocator,
+			)
+		case .Parameter_Count:
+			return fmt.aprintf(
+				"declared function type expects %d parameters, definition has %d",
+				signature_data.expected,
+				signature_data.actual,
+				allocator = allocator,
+			)
+		case .Parameter_Type:
+			return fmt.aprintf(
+				"parameter %d does not match the declared function type",
+				signature_data.index + 1,
+				allocator = allocator,
+			)
+		case .Return_Count:
+			return fmt.aprintf(
+				"declared function type expects %d return values, definition has %d",
+				signature_data.expected,
+				signature_data.actual,
+				allocator = allocator,
+			)
+		case .Return_Type:
+			return fmt.aprintf(
+				"return type %d does not match the declared function type",
+				signature_data.index + 1,
+				allocator = allocator,
+			)
+		}
 
 	case .Declaration_Type_Missing:
 		return fmt.aprintf("declaration requires a type or initial value", allocator = allocator)
@@ -1471,6 +1712,18 @@ error_message :: proc(
 			allocator = allocator,
 		)
 
+	case .Target_Value_Count_Mismatch:
+		data, ok := err.data.?
+		assert(ok)
+		count_data, is_count := data.value.(Count_Error_Data)
+		assert(is_count)
+		return fmt.aprintf(
+			"expected %d values for assignment targets, received %d",
+			count_data.expected,
+			count_data.actual,
+			allocator = allocator,
+		)
+
 	case .Return_Outside_Function:
 		return fmt.aprintf(
 			"'return' can only appear inside a function body",
@@ -1516,6 +1769,12 @@ error_hint :: proc(err: Analyzer_Error) -> Maybe(string) {
 
 	case .Type_Mismatch_On_Declaration:
 		return "the value's type doesn't match the declared type"
+
+	case .Fn_Declaration_Signature_Mismatch:
+		return "make the function definition's signature match its declared function type"
+
+	case .Target_Value_Count_Mismatch:
+		return "the number of values must match the number of targets"
 
 	case .Declaration_Type_Missing:
 		return "add a type annotation or an initial value"

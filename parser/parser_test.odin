@@ -1267,6 +1267,15 @@ test_function_declarations :: proc(t: ^testing.T) {
 			return_types = []string{"number"},
 			has_declared_type = true,
 		},
+		{
+			name = "typed constant async fn declaration",
+			source = "foo: async fn(number) -> number : async fn(value: number) -> number { return value }",
+			async = true,
+			arg_names = []string{"value"},
+			arg_types = []string{"number"},
+			return_types = []string{"number"},
+			has_declared_type = true,
+		},
 	}
 
 	for test in tests {
@@ -2332,6 +2341,171 @@ test_fn_param_function_typed :: proc(t: ^testing.T) {
 	testing.expectf(t, token_text(source, decl.lit.args[0].name) == "cb", "wrong param name")
 	_, is_fn := decl.lit.args[0].type.variant.(syntax.Fn_Type)
 	testing.expect(t, is_fn, "param type should be a Fn_Type")
+}
+
+@(test)
+test_function_type_declarations :: proc(t: ^testing.T) {
+	Case :: struct {
+		name:          string,
+		source:        string,
+		async:         bool,
+		param_count:   int,
+		return_count:  int,
+		nested_param:  bool,
+		nested_return: bool,
+	}
+
+	tests := []Case {
+		{
+			name = "typed variable",
+			source = "callback: fn(number) -> number",
+			param_count = 1,
+			return_count = 1,
+		},
+		{
+			name = "async multi parameter and return",
+			source = "callback: async fn(number, string) -> (number, string)",
+			async = true,
+			param_count = 2,
+			return_count = 2,
+		},
+		{
+			name = "nested parameter and return",
+			source = "callback: fn(fn(number) -> number) -> fn(string) -> string",
+			param_count = 1,
+			return_count = 1,
+			nested_param = true,
+			nested_return = true,
+		},
+	}
+
+	for test in tests {
+		arena: mem.Dynamic_Arena
+		mem.dynamic_arena_init(&arena)
+		arena_alloc := mem.dynamic_arena_allocator(&arena)
+		defer mem.dynamic_arena_destroy(&arena)
+
+		l: lexer.Lexer
+		lexer.init(&l, arena_alloc)
+		tokens, lexer_err := lexer.scan(&l, test.source)
+		if lexer_err != nil {
+			testing.expectf(t, false, "%s: unexpected lexer error: %v", test.name, lexer_err)
+			continue
+		}
+
+		p: Parser
+		init(&p, tokens[:], arena_alloc)
+		stmts, parser_err := parse(&p)
+		if parser_err != nil {
+			testing.expectf(t, false, "%s: unexpected parser error: %v", test.name, parser_err)
+			continue
+		}
+		if len(stmts) != 1 {
+			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(stmts))
+			continue
+		}
+
+		decl, ok := stmts[0].(^syntax.Ident_Decl_Stmt)
+		if !ok {
+			testing.expectf(t, false, "%s: expected Ident_Decl_Stmt", test.name)
+			continue
+		}
+
+		decl_type, has_type := decl.type.?
+		if !has_type {
+			testing.expectf(t, false, "%s: declaration has no type", test.name)
+			continue
+		}
+
+		fn_type, is_fn := decl_type.variant.(syntax.Fn_Type)
+		if !is_fn {
+			testing.expectf(t, false, "%s: declaration type should be Fn_Type", test.name)
+			continue
+		}
+
+		testing.expectf(t, fn_type.async == test.async, "%s: async=%v, want %v", test.name, fn_type.async, test.async)
+		testing.expectf(t, len(fn_type.params) == test.param_count, "%s: got %d params, want %d", test.name, len(fn_type.params), test.param_count)
+		testing.expectf(t, len(fn_type.returns) == test.return_count, "%s: got %d returns, want %d", test.name, len(fn_type.returns), test.return_count)
+
+		if test.nested_param && len(fn_type.params) > 0 {
+			_, nested := fn_type.params[0].variant.(syntax.Fn_Type)
+			testing.expectf(t, nested, "%s: first parameter should be a function type", test.name)
+		}
+		if test.nested_return && len(fn_type.returns) > 0 {
+			_, nested := fn_type.returns[0].variant.(syntax.Fn_Type)
+			testing.expectf(t, nested, "%s: first return should be a function type", test.name)
+		}
+	}
+}
+
+@(test)
+test_function_literal_returns_function_type :: proc(t: ^testing.T) {
+	source := "make_identity :: fn() -> fn(number) -> number { return fn(value: number) -> number { return value } }"
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil || len(stmts) != 1 do return
+
+	decl, ok := stmts[0].(^syntax.Fn_Decl_Stmt)
+	testing.expect(t, ok, "expected Fn_Decl_Stmt")
+	if !ok do return
+
+	returns, has_returns := decl.lit.return_type.?
+	testing.expect(t, has_returns, "function should have a return type")
+	if !has_returns || len(returns) != 1 do return
+
+	fn_type, is_fn := returns[0].variant.(syntax.Fn_Type)
+	testing.expect(t, is_fn, "return type should be Fn_Type")
+	if !is_fn do return
+	testing.expectf(t, len(fn_type.params) == 1, "got %d nested params, want 1", len(fn_type.params))
+	testing.expectf(t, len(fn_type.returns) == 1, "got %d nested returns, want 1", len(fn_type.returns))
+}
+
+@(test)
+test_function_type_trailing_commas :: proc(t: ^testing.T) {
+	expect_parse_ok(t, "callback: fn(number,)")
+	expect_parse_ok(t, "callback: fn() -> (number, string,)")
+	expect_parse_ok(t, "foo :: fn() -> (number, string,) { return 1, \"ok\" }")
+}
+
+@(test)
+test_function_type_errors :: proc(t: ^testing.T) {
+	expect_parse_error(t, "callback: fn(",             .Incorrect_Type_Expr)
+	expect_parse_error(t, "callback: fn(number",       .Unexpected_Token)
+	expect_parse_error(t, "callback: fn() ->",         .Incorrect_Type_Expr)
+	expect_parse_error(t, "callback: fn() -> (number", .Unexpected_Token)
+	expect_parse_error(t, "foo :: fn() ->",            .Incorrect_Type_Expr)
+}
+
+// @(test) Don't know if we should disallow with because of interop
+// test_bodyless_function_values_are_rejected :: proc(t: ^testing.T) {
+// 	// A missing body denotes a signature-only named declaration. A function value
+// 	// must have a runtime value, so the same syntax is invalid on a value RHS.
+// 	expect_parse_error(t, "callback := fn()",       .Unexpected_Token)
+// 	expect_parse_error(t, "callback := async fn()", .Unexpected_Token)
+// 	expect_parse_error(t, "callback: fn() = fn()",  .Unexpected_Token)
+// }
+
+@(test)
+test_declaration_and_return_list_errors :: proc(t: ^testing.T) {
+	expect_parse_error(t, "a, := 1",    .Unexpected_Token)
+	expect_parse_error(t, "a, b 1",     .Unexpected_Token)
+	expect_parse_error(t, "a, b :=",    .Unexpected_EOF)
+	expect_parse_error(t, "a, b := 1,", .Unexpected_EOF)
+	expect_parse_error(t, "return 1,",  .Unexpected_EOF)
 }
 
 @(test)

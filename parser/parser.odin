@@ -111,7 +111,7 @@ parse_stmt :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 			return parse_multi_target(p)
 
 		case .Left_Paren:
-			return parse_fn_call(p)
+			return parse_fn_call_stmt(p)
 		}
 
 	case .Keyword:
@@ -259,6 +259,14 @@ parse_ident_rhs :: proc(p: ^Parser) -> ([dynamic]^syntax.Expr, Maybe(Parser_Erro
 	for {
 		value, err := parse_expr(p)
 		if err != nil do return nil, err
+
+		// Dunno if I should disallow fn stubs as values
+		// if fn_expr, ok := value.expr.(syntax.Fn_Literal_Expr); ok {
+		// 	if fn_expr.block == nil {
+		//
+		// 	}
+		// }
+
 		append(&exprs, value)
 
 		if current(p).kind != .Comma do break
@@ -721,7 +729,7 @@ parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.
 	return args, nil
 }
 
-parse_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) {
+parse_fn_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) {
 	name := current(p)
 	advance(p) // name
 	advance(p) // '('
@@ -763,8 +771,8 @@ parse_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) {
 	}, nil
 }
 
-parse_fn_call :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
-	call, err := parse_call(p)
+parse_fn_call_stmt :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	call, err := parse_fn_call(p)
 	if err != nil do return nil, err
 
 	stmt := new(syntax.Fn_Call_Stmt, allocator = p.allocator)
@@ -1033,7 +1041,7 @@ parse_primary :: proc(p: ^Parser) -> (^syntax.Expr, Maybe(Parser_Error)) {
 
 	case .Ident:
 		if n, ok := next(p); ok && n.kind == .Left_Paren { // function call
-			call, err := parse_call(p)
+			call, err := parse_fn_call(p)
 			if err != nil do return expr, err
 			expr^ = syntax.Expr {
 				expr = call,

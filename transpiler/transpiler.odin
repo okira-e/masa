@@ -1,5 +1,6 @@
 package transpiler
 
+import "core:fmt"
 import "../syntax"
 import "core:strings"
 
@@ -10,9 +11,9 @@ Transpiler :: struct {
 }
 
 init :: proc(t: ^Transpiler, source: string) {
-	t.source = source
+	t.source         = source
 	t.output_builder = strings.builder_make()
-	t.indent = 0
+	t.indent         = 0
 }
 
 destroy :: proc(t: ^Transpiler) {
@@ -20,7 +21,7 @@ destroy :: proc(t: ^Transpiler) {
 }
 
 transpile :: proc(t: ^Transpiler, stmts: []syntax.Stmt) -> string {
-	emit_headers(t);
+	emit_headers(t)
 
 	for stmt in stmts {
 		written_anything := emit_stmt(t, stmt)
@@ -33,7 +34,7 @@ transpile :: proc(t: ^Transpiler, stmts: []syntax.Stmt) -> string {
 }
 
 emit_headers :: proc(t: ^Transpiler) {
-	strings.write_string(&t.output_builder, "\"use strict\";\n\n");
+	strings.write_string(&t.output_builder, USE_STRICT_PREFIX)
 }
 
 // Returns if it actually wrote something or not
@@ -54,11 +55,17 @@ emit_stmt :: proc(t: ^Transpiler, stmt: syntax.Stmt, do_indent := true) -> bool 
 		strings.write_byte(&t.output_builder, ';')
 
 	case ^syntax.Fn_Decl_Stmt:
+		if s.lit.block == nil {
+			return false
+		}
+
 		if do_indent do write_indent(t)
 		emit_fn_declaration(t, s)
 
 	case ^syntax.Fn_Call_Stmt:
-		// nocheckin: do calls
+		if do_indent do write_indent(t)
+		emit_fn_call(t, s)
+		strings.write_byte(&t.output_builder, ';')
 
 	case ^syntax.Ident_Assignment_Stmt:
 		if do_indent do write_indent(t)
@@ -101,7 +108,7 @@ emit_if :: proc(t: ^Transpiler, stmt: ^syntax.If_Stmt) {
 	emit_stmt(t, stmt.then_block, false)
 	if else_stmt, has := stmt.else_branch.?; has {
 		strings.write_string(&t.output_builder, " else ")
-		emit_stmt(t, else_stmt)
+		emit_stmt(t, else_stmt, false)
 	}
 }
 
@@ -129,10 +136,10 @@ emit_fn_declaration :: proc(t: ^Transpiler, stmt: ^syntax.Fn_Decl_Stmt) {
 		return
 	}
 
-	emit_fn(t, stmt.lit, stmt.name)
+	emit_fn_literal(t, stmt.lit, stmt.name)
 }
 
-emit_fn :: proc(t: ^Transpiler, fn: syntax.Fn_Literal_Expr, name: Maybe(syntax.Token)) {
+emit_fn_literal :: proc(t: ^Transpiler, fn: syntax.Fn_Literal_Expr, name: Maybe(syntax.Token)) {
 	if fn.async {
 	    strings.write_string(&t.output_builder, "async function ")
 	} else {
@@ -152,10 +159,29 @@ emit_fn :: proc(t: ^Transpiler, fn: syntax.Fn_Literal_Expr, name: Maybe(syntax.T
 	}
 	strings.write_string(&t.output_builder, ") ")
 
-	//block
+	// block
 	if block, ok := fn.block.?; ok {
 		emit_block(t, block)
 	}
+}
+
+emit_fn_call :: proc(t: ^Transpiler, stmt: ^syntax.Fn_Call_Stmt) {
+	if stmt.call.awaited {
+	    strings.write_string(&t.output_builder, "await ")
+	}
+
+	write_lexeme(t, stmt.call.name)
+	strings.write_string(&t.output_builder, "(")
+
+	for arg, i in stmt.call.args {
+		if i != 0 {
+			strings.write_string(&t.output_builder, ", ")
+		}
+
+		emit_expr(t, arg)
+	}
+
+	strings.write_string(&t.output_builder, ")")
 }
 
 emit_ident_assignment :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Assignment_Stmt) {
@@ -173,8 +199,10 @@ emit_block :: proc(t: ^Transpiler, stmt: ^syntax.Block_Stmt) {
 	strings.write_string(&t.output_builder, "{\n")
 	t.indent += 1
 	for inner in stmt.stmts {
-		emit_stmt(t, inner)
-		strings.write_byte(&t.output_builder, '\n')
+		written_anything := emit_stmt(t, inner)
+		if written_anything {
+			strings.write_byte(&t.output_builder, '\n')
+		}
 	}
 	t.indent -= 1
 	write_indent(t)
@@ -211,7 +239,7 @@ emit_expr :: proc(t: ^Transpiler, expr: ^syntax.Expr) {
 		emit_ident_token(t, expr.token)
 
 	case syntax.Fn_Literal_Expr:
-		emit_fn(t, expr, nil)
+		emit_fn_literal(t, expr, nil)
 
 	case syntax.Logical_Expr:
 		emit_expr(t, expr.left)

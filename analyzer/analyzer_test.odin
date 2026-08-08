@@ -205,6 +205,15 @@ test_error_message_uses_count_payload_after_analyzer_destroy :: proc(t: ^testing
 }
 
 @(test)
+test_target_count_message_uses_expanded_value_count :: proc(t: ^testing.T) {
+	expect_message(
+		t,
+		"pair :: fn() -> (number, string) { return 1, \"ok\" }\nx := pair()",
+		"expected 1 values for assignment targets, received 2",
+	)
+}
+
+@(test)
 test_error_message_uses_argument_index_payload :: proc(t: ^testing.T) {
 	expect_message(
 		t,
@@ -409,9 +418,54 @@ test_mutable_fn_value_binding :: proc(t: ^testing.T) {
 
 @(test)
 test_typed_constant_fn_decl :: proc(t: ^testing.T) {
-	// `foo: T : fn` is the same hoisted function declaration as `foo :: fn`,
-	// just carrying an explicit declared type.
 	expect_ok(t, "foo: fn() -> number : fn() -> number { return 5 }")
+}
+
+@(test)
+test_typed_constant_fn_decl_signature_mismatches :: proc(t: ^testing.T) {
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: number : fn() {}",
+		.Declared_Type,
+	)
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: fn(number) -> number : fn() -> number { return 1 }",
+		.Parameter_Count,
+		expected = 1,
+		actual = 0,
+	)
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: fn(number) -> number : fn(value: string) -> number { return 1 }",
+		.Parameter_Type,
+		index = 0,
+	)
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: fn() -> number : fn() {}",
+		.Return_Count,
+		expected = 1,
+		actual = 0,
+	)
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: fn() -> (number, string) : fn() -> number { return 1 }",
+		.Return_Count,
+		expected = 2,
+		actual = 1,
+	)
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: fn() -> number : fn() -> string { return \"wrong\" }",
+		.Return_Type,
+		index = 0,
+	)
+	expect_fn_decl_signature_mismatch(
+		t,
+		"foo: fn() -> number : async fn() -> number { return 1 }",
+		.Async,
+	)
 }
 
 @(test)
@@ -516,6 +570,22 @@ test_return_if_then_trailing_return :: proc(t: ^testing.T) {
 	expect_ok(t, "foo :: fn() -> number { if true { return 10 }\nreturn 5 }")
 }
 
+@(test)
+test_return_fn_literal :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"make_identity :: fn() -> fn(number) -> number { return fn(value: number) -> number { return value } }",
+	)
+}
+
+@(test)
+test_return_after_nested_fn_literal :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"foo :: fn() -> number { nested := fn() -> number { return 1 }\nreturn 2 }",
+	)
+}
+
 // -- Errors
 
 @(test)
@@ -587,6 +657,48 @@ test_fn_body_type_error :: proc(t: ^testing.T) {
 	expect_kind(t, "foo :: fn() { x := 1 + \"hi\" }", .Operator_Type_Mismatch)
 }
 
+@(test)
+test_function_literal_captures_outer_argument_and_local :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"make_adder :: fn(base: number) -> fn(number) -> number { offset := 1\nreturn fn(value: number) -> number { return base + offset + value } }",
+	)
+}
+
+@(test)
+test_local_declaration_cannot_redeclare_function_argument :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn(value: number) { value := 1 }",
+		.Variable_Redeclaration,
+	)
+}
+
+@(test)
+test_function_argument_cannot_be_assigned :: proc(t: ^testing.T) {
+	expect_kind(t, "foo :: fn(value: number) { value = 1 }", .Variable_Constant)
+}
+
+@(test)
+test_function_value_does_not_escape_block :: proc(t: ^testing.T) {
+	expect_kind(t, "{ callback := fn() {} }\ncallback()", .Undefined_Variable)
+}
+
+@(test)
+test_duplicate_name_in_multi_declaration :: proc(t: ^testing.T) {
+	expect_kind(t, "value, value := 1, 2", .Variable_Redeclaration)
+}
+
+@(test)
+test_same_function_name_allowed_in_sibling_blocks :: proc(t: ^testing.T) {
+	expect_ok(t, "{ local :: fn() {} }\n{ local :: fn() {} }")
+}
+
+@(test)
+test_return_inside_nested_plain_block :: proc(t: ^testing.T) {
+	expect_ok(t, "foo :: fn() -> number { { return 1 } }")
+}
+
 //
 // Assigning function values (function literal as an RHS value)
 //
@@ -641,29 +753,505 @@ test_call_nested_calls :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_multiple_targets_call :: proc(t: ^testing.T) {
+	expect_ok(t, "foo :: fn() -> (number, string) { return 1, \"hi\" }\nx, y := foo()")
+}
+
+@(test)
+test_multiple_targets_receive_corresponding_types :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"foo :: fn() -> (number, string) { return 1, \"hi\" }\nuse_number :: fn(value: number) {}\nuse_string :: fn(value: string) {}\nx, y := foo()\nuse_number(x)\nuse_string(y)",
+	)
+}
+
+@(test)
+test_multiple_targets_flatten_mixed_rhs :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"foo :: fn() -> (number, string) { return 1, \"hi\" }\nuse_number :: fn(value: number) {}\nuse_string :: fn(value: string) {}\nx, y, z := 0, foo()\nuse_number(x)\nuse_number(y)\nuse_string(z)",
+	)
+}
+
+@(test)
+test_multiple_constant_targets_call :: proc(t: ^testing.T) {
+	expect_ok(t, "foo :: fn() -> (number, string) { return 1, \"hi\" }\nx, y :: foo()")
+}
+
+@(test)
+test_multiple_targets_call_count_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn() -> (number, string) { return 1, \"hi\" }\nx := foo()",
+		.Target_Value_Count_Mismatch,
+	)
+}
+
+@(test)
+test_multiple_target_assignment_call :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"foo :: fn() -> (number, string) { return 1, \"hi\" }\nx := 0\ny := \"\"\nx, y = foo()",
+	)
+}
+
+@(test)
+test_multiple_target_assignment_count_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn() -> (number, string) { return 1, \"hi\" }\nx := 0\nx = foo()",
+		.Target_Value_Count_Mismatch,
+	)
+}
+
+@(test)
+test_multiple_target_assignment_type_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn() -> (string, number) { return \"hi\", 1 }\nx := 0\ny := \"\"\nx, y = foo()",
+		.Type_Mismatch_On_Assignment,
+	)
+}
+
+@(test)
+test_multiple_values_forwarded_from_return_call :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"pair :: fn() -> (number, string) { return 1, \"ok\" }\nforward :: fn() -> (number, string) { return pair() }",
+	)
+}
+
+@(test)
+test_multiple_values_flatten_mixed_return_rhs :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"pair :: fn() -> (number, string) { return 1, \"ok\" }\nforward :: fn() -> (number, number, string) { return 0, pair() }",
+	)
+}
+
+@(test)
+test_multiple_values_flatten_multiple_calls :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"pair :: fn() -> (number, string) { return 1, \"ok\" }\na, b, c, d := pair(), pair()",
+	)
+}
+
+@(test)
+test_multiple_values_too_few_for_targets :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"one :: fn() -> number { return 1 }\nx, y := one()",
+		.Target_Value_Count_Mismatch,
+	)
+}
+
+@(test)
+test_void_call_produces_zero_target_values :: proc(t: ^testing.T) {
+	expect_kind(t, "noop :: fn() {}\nx := noop()", .Target_Value_Count_Mismatch)
+}
+
+@(test)
+test_multiple_values_rejected_in_single_value_contexts :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"pair :: fn() -> (number, number) { return 1, 2 }\nx := pair() + 1",
+		.Multi_Value_In_Single_Context,
+	)
+	expect_kind(
+		t,
+		"pair :: fn() -> (bool, bool) { return true, false }\nif pair() {}",
+		.Multi_Value_In_Single_Context,
+	)
+	expect_kind(
+		t,
+		"pair :: fn() -> (number, number) { return 1, 2 }\nconsume :: fn(value: number) {}\nconsume(pair())",
+		.Multi_Value_In_Single_Context,
+	)
+}
+
+@(test)
+test_typed_multiple_targets_check_expanded_values :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"numbers :: fn() -> (number, number) { return 1, 2 }\nx, y: number = numbers()",
+	)
+	expect_kind(
+		t,
+		"pair :: fn() -> (number, string) { return 1, \"ok\" }\nx, y: number = pair()",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_multiple_target_direct_assignment :: proc(t: ^testing.T) {
+	expect_ok(t, "x := 0\ny := \"\"\nx, y = 1, \"ok\"")
+}
+
+@(test)
+test_multiple_target_assignment_rejects_constant_target :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"pair :: fn() -> (number, number) { return 1, 2 }\nx :: 0\ny := 0\nx, y = pair()",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_return_call_reports_expanded_value_type_index :: proc(t: ^testing.T) {
+	expect_message(
+		t,
+		"pair :: fn() -> (number, string) { return 1, \"ok\" }\nforward :: fn() -> (number, number) { return pair() }",
+		"return value 2 does not match its declared type",
+	)
+}
+
+
+@(test)
 test_call_async_fn_without_await :: proc(t: ^testing.T) {
 	// Await is out of scope; calling an async fn type-checks like any other call.
 	expect_ok(t, "foo :: async fn() -> number { return 5 }\nx := foo() + 1")
 }
 
-// @(test)
-// test_call_before_declaration_hoisting :: proc(t: ^testing.T) {
-// 	// Function declarations are hoisted, so a call may precede the declaration.
-// 	expect_ok(t, "foo()\nfoo :: fn() {}")
-// }
+@(test)
+test_call_before_declaration_hoisting :: proc(t: ^testing.T) {
+	// Function declarations are hoisted, so a call may precede the declaration.
+	expect_ok(t, "foo()\nfoo :: fn() {}")
+}
 
-// @(test)
-// test_typed_constant_fn_decl_hoisted :: proc(t: ^testing.T) {
-// 	// The typed-constant form is a `::`-equivalent definition, so it hoists too.
-// 	expect_ok(t, "foo()\nfoo: fn() : fn() {}")
-// }
+@(test)
+test_typed_constant_fn_decl_hoisted :: proc(t: ^testing.T) {
+	// The typed-constant form is a `::`-equivalent definition, so it hoists too.
+	expect_ok(t, "foo()\nfoo: fn() : fn() {}")
+}
+
+@(test)
+test_mutable_fn_not_hoisted :: proc(t: ^testing.T) {
+	// A `:=` fn is an ordinary value binding, so it remains source ordered.
+	expect_kind(t, "foo()\nfoo := fn() {}", .Undefined_Variable)
+}
+
+@(test)
+test_direct_recursion :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"countdown :: fn(value: number) -> number { if value == 0 { return 0 }\nreturn countdown(value - 1) }",
+	)
+}
+
+@(test)
+test_mutual_recursion :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"even :: fn(value: number) -> bool { if value == 0 { return true }\nreturn odd(value - 1) }\nodd :: fn(value: number) -> bool { if value == 0 { return false }\nreturn even(value - 1) }",
+	)
+}
+
+@(test)
+test_function_body_can_reference_later_function :: proc(t: ^testing.T) {
+	expect_ok(t, "first :: fn() { second() }\nsecond :: fn() {}")
+}
+
+@(test)
+test_function_body_cannot_reference_later_variable :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"read :: fn() -> number { return later }\nlater := 1",
+		.Undefined_Variable,
+	)
+}
+
+@(test)
+test_hoisted_function_signature_uses_earlier_type_alias :: proc(t: ^testing.T) {
+	expect_ok(t, "Num :: number\nconsume(1)\nconsume :: fn(value: Num) {}")
+}
+
+@(test)
+test_function_local_hoisted_function_captures_argument :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"outer :: fn(value: number) -> number { return local()\nlocal :: fn() -> number { return value } }",
+	)
+}
+
+@(test)
+test_block_local_function_is_hoisted :: proc(t: ^testing.T) {
+	expect_ok(t, "{\nlocal()\nlocal :: fn() {}\n}")
+}
+
+@(test)
+test_block_local_function_does_not_escape :: proc(t: ^testing.T) {
+	expect_kind(t, "{ local :: fn() {} }\nlocal()", .Undefined_Variable)
+}
+
+@(test)
+test_block_hoisted_function_shadows_outer_function :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"choose :: fn(value: number) {}\n{\nchoose()\nchoose :: fn() {}\n}",
+	)
+}
+
+@(test)
+test_hoisted_stub_call_reports_stub :: proc(t: ^testing.T) {
+	expect_kind(t, "external()\nexternal :: fn()", .Call_To_Stub)
+}
+
+@(test)
+test_hoisted_function_name_collisions_follow_source_order :: proc(t: ^testing.T) {
+	expect_kind(t, "foo := 1\nfoo :: fn() {}", .Duplicate_Fn_Definition)
+	expect_kind(t, "foo :: fn() {}\nfoo := 1", .Variable_Redeclaration)
+	expect_kind(t, "Thing :: number\nThing :: fn() {}", .Duplicate_Fn_Definition)
+	expect_kind(t, "Thing :: fn() {}\nThing :: number", .Variable_Redeclaration)
+}
+
 //
-// @(test)
-// test_mutable_fn_not_hoisted :: proc(t: ^testing.T) {
-// 	// Contrast with hoisting: a `:=` fn is an ordinary value binding, not a
-// 	// definition, so it is NOT hoisted - calling it beforehand is undefined.
-// 	expect_kind(t, "foo()\nfoo := fn() {}", .Undefined_Variable)
-// }
+// Callable function variables
+//
+
+@(test)
+test_call_var_function :: proc(t: ^testing.T) {
+	expect_ok(t, "x := fn() {}\nx()")
+}
+
+@(test)
+test_call_var_function_with_arguments :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"identity := fn(value: number) -> number { return value }\nidentity(1)",
+	)
+}
+
+@(test)
+test_call_var_function_in_expression :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"identity := fn(value: number) -> number { return value }\nresult := identity(1)",
+	)
+}
+
+@(test)
+test_call_typed_var_function :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"identity: fn(number) -> number = fn(value: number) -> number { return value }\nresult := identity(1)",
+	)
+}
+
+@(test)
+test_typed_var_function_without_value :: proc(t: ^testing.T) {
+	expect_ok(t, "callback: fn(number) -> number\ncallback(1)")
+}
+
+@(test)
+test_typed_var_function_assigned_after_declaration :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"callback: fn(number) -> number\ncallback = fn(value: number) -> number { return value }\nresult := callback(1)",
+	)
+}
+
+@(test)
+test_var_function_can_be_reassigned :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"callback := fn(value: number) -> number { return value }\ncallback = fn(value: number) -> number { return value + 1 }\nresult := callback(1)",
+	)
+}
+
+@(test)
+test_var_function_can_initialize_another_var :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"identity := fn(value: number) -> number { return value }\ncallback := identity\nresult := callback(1)",
+	)
+}
+
+@(test)
+test_call_returned_function_var :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"make_identity :: fn() -> fn(number) -> number { return fn(value: number) -> number { return value } }\nidentity := make_identity()\nresult := identity(1)",
+	)
+}
+
+@(test)
+test_call_async_var_function :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"load := async fn() -> number { return 1 }\nresult := load()",
+	)
+}
+
+@(test)
+test_call_multiple_var_functions :: proc(t: ^testing.T) {
+	expect_ok(t, "first, second := fn() {}, fn() {}\nfirst()\nsecond()")
+}
+
+@(test)
+test_var_function_passed_as_argument :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"consume :: fn(callback: fn(number) -> number) {}\nidentity := fn(value: number) -> number { return value }\nconsume(identity)",
+	)
+}
+
+@(test)
+test_fn_argument_is_callable :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"apply :: fn(callback: fn(number) -> number, value: number) -> number { return callback(value) }\nidentity := fn(value: number) -> number { return value }\nresult := apply(identity, 1)",
+	)
+}
+
+@(test)
+test_call_var_function_too_few_args :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"identity := fn(value: number) -> number { return value }\nresult := identity()",
+		.Argument_Count_Mismatch,
+	)
+}
+
+@(test)
+test_call_var_function_too_many_args :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"identity := fn(value: number) -> number { return value }\nresult := identity(1, 2)",
+		.Argument_Count_Mismatch,
+	)
+}
+
+@(test)
+test_call_var_function_argument_type_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"identity := fn(value: number) -> number { return value }\nresult := identity(\"wrong\")",
+		.Argument_Type_Mismatch,
+	)
+}
+
+@(test)
+test_var_function_assignment_type_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback := fn(value: number) -> number { return value }\ncallback = fn(value: string) -> string { return value }",
+		.Type_Mismatch_On_Assignment,
+	)
+}
+
+@(test)
+test_structurally_equal_function_types :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"callback: async fn(number) -> number = async fn(value: number) -> number { return value }",
+	)
+	expect_ok(
+		t,
+		"callback: fn() -> (number, string) = fn() -> (number, string) { return 1, \"ok\" }",
+	)
+	expect_ok(
+		t,
+		"callback: fn(fn(number) -> number) -> fn(number) -> number = fn(inner: fn(number) -> number) -> fn(number) -> number { return inner }",
+	)
+}
+
+@(test)
+test_function_type_async_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn() = async fn() {}",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_function_type_argument_count_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn(number) = fn() {}",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_function_type_argument_type_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn(number) = fn(value: string) {}",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_function_type_return_presence_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn() = fn() -> number { return 1 }",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_function_type_return_count_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn() -> number = fn() -> (number, string) { return 1, \"ok\" }",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_function_type_return_type_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn() -> number = fn() -> string { return \"wrong\" }",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_nested_function_type_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback: fn(fn(number) -> number) = fn(inner: fn(string) -> number) {}",
+		.Type_Mismatch_On_Declaration,
+	)
+}
+
+@(test)
+test_named_function_passed_as_argument :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"consume :: fn(callback: fn(number) -> number) {}\nidentity :: fn(value: number) -> number { return value }\nconsume(identity)",
+	)
+}
+
+@(test)
+test_named_function_argument_signature_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"consume :: fn(callback: fn(number) -> number) {}\nidentity :: fn(value: string) -> string { return value }\nconsume(identity)",
+		.Argument_Type_Mismatch,
+	)
+}
+
+@(test)
+test_named_function_returned_as_function_value :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"identity :: fn(value: number) -> number { return value }\nget_identity :: fn() -> fn(number) -> number { return identity }",
+	)
+}
+
+@(test)
+test_returned_function_signature_mismatch :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"make :: fn() -> fn(number) -> number { return fn(value: string) -> string { return value } }",
+		.Return_Type_Mismatch,
+	)
+}
 
 //
 // Calling functions - errors
@@ -834,6 +1422,45 @@ expect_kind :: proc(
 	}
 }
 
+@(private)
+expect_fn_decl_signature_mismatch :: proc(
+	t: ^testing.T,
+	source: string,
+	reason: Fn_Declaration_Signature_Mismatch_Reason,
+	index := 0,
+	expected := 0,
+	actual := 0,
+	loc := #caller_location,
+) {
+	err := check(source)
+	e, has_error := err.?
+	testing.expectf(t, has_error, "%q: expected a function declaration signature error, got none", source, loc = loc)
+	if !has_error do return
+
+	testing.expectf(
+		t,
+		e.kind == .Fn_Declaration_Signature_Mismatch,
+		"%q: got %v, want Fn_Declaration_Signature_Mismatch",
+		source,
+		e.kind,
+		loc = loc,
+	)
+	if e.kind != .Fn_Declaration_Signature_Mismatch do return
+
+	data, has_data := e.data.?
+	testing.expectf(t, has_data, "%q: signature mismatch has no data", source, loc = loc)
+	if !has_data do return
+
+	signature_data, is_signature := data.value.(Fn_Declaration_Signature_Error_Data)
+	testing.expectf(t, is_signature, "%q: signature mismatch has the wrong data type", source, loc = loc)
+	if !is_signature do return
+
+	testing.expectf(t, signature_data.reason == reason, "%q: got reason %v, want %v", source, signature_data.reason, reason, loc = loc)
+	testing.expectf(t, signature_data.index == index, "%q: got index %d, want %d", source, signature_data.index, index, loc = loc)
+	testing.expectf(t, signature_data.expected == expected, "%q: got expected count %d, want %d", source, signature_data.expected, expected, loc = loc)
+	testing.expectf(t, signature_data.actual == actual, "%q: got actual count %d, want %d", source, signature_data.actual, actual, loc = loc)
+}
+
 // Asserts analysis of `source` succeeds with no error.
 @(private)
 expect_ok :: proc(t: ^testing.T, source: string, loc := #caller_location) {
@@ -862,12 +1489,14 @@ check :: proc(source: string) -> Maybe(Analyzer_Error) {
 
 	l := lexer.Lexer{}
 	lexer.init(&l, arena_alloc)
-	tokens, _ := lexer.scan(&l, source)
+	tokens, lexer_err := lexer.scan(&l, source)
+	assert(lexer_err == nil, "analyzer test source must lex successfully")
 	defer delete(tokens)
 
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
-	stmts, _ := parser.parse(&p)
+	stmts, parser_err := parser.parse(&p)
+	assert(parser_err == nil, "analyzer test source must parse successfully")
 	defer delete(stmts)
 
 	a: Analyzer
