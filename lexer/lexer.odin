@@ -112,6 +112,7 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 				skips := 0
 				for {
 					l.current += 1
+					l.column += 1
 					skips += 1
 
 					next, ok := peek_next(l, source)
@@ -123,6 +124,32 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 				new_token := make_token(l, l.current, .Comment, nil, nil)
 				append(&tokens, new_token)
 				l.column += skips
+
+			} else if ok && next == '*' {
+				for {
+					l.current += 1
+					l.column += 1
+
+					next, ok := peek_next(l, source)
+					if !ok {
+						break
+					}
+
+					if source[l.current] == '\n' {
+						l.line += 1
+						l.column = 0
+					}
+
+					if source[l.current] == '*' && next == '/' {
+						l.current += 1
+						l.column += 1
+						break
+					}
+				}
+
+				new_token := make_token(l, l.current, .Comment, nil, nil)
+				append(&tokens, new_token)
+
 			} else {
 				new_token := make_token(l, l.current, .Slash, nil, nil)
 				append(&tokens, new_token)

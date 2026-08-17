@@ -12,9 +12,9 @@ import "core:testing"
 test_basic_expressions :: proc(t: ^testing.T) {
 	tests := []Test {
 		Test {
-			name = "smoke",
-			source = "1 / (2 * -5) + 1 == 3 == 4",
-			input = []syntax.Token {
+			name     = "smoke",
+			source   = "1 / (2 * -5) + 1 == 3 == 4",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Slash, 2, 3), // /
 				make_token(.Left_Paren, 4, 5), // (
@@ -31,79 +31,41 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 25, 26), // 4
 				make_token(.EOF, 26, 27),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Binary_Expr {
-									left = &syntax.Expr {
-										expr = syntax.Binary_Expr {
-											left = &syntax.Expr {
-												expr = syntax.Literal_Expr {
-													token = make_token(.Literal, 0, 1),
-												},
-											},
-											op = .Slash,
-											right = &syntax.Expr {
-												expr = syntax.Grouping_Expr {
-													expr = &syntax.Expr {
-														expr = syntax.Binary_Expr {
-															left = &syntax.Expr {
-																expr = syntax.Literal_Expr {
-																	token = make_token(
-																		.Literal,
-																		5,
-																		6,
-																	),
-																},
-															},
-															op = .Star,
-															right = &syntax.Expr {
-																expr = syntax.Unary_Expr {
-																	op = .Minus,
-																	right = &syntax.Expr {
-																		expr = syntax.Literal_Expr {
-																			token = make_token(
-																				.Literal,
-																				10,
-																				11,
-																			),
-																		},
-																	},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Binary_Expr {
+						left = &syntax.Binary_Expr {
+							left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+							op = .Slash,
+							right = &syntax.Grouping_Expr {
+								expr = &syntax.Binary_Expr {
+									left = &syntax.Literal_Expr {
+										token = make_token(.Literal, 5, 6),
 									},
-									op = .Plus,
-									right = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 15, 16),
+									op = .Star,
+									right = &syntax.Unary_Expr {
+										op = .Minus,
+										right = &syntax.Literal_Expr {
+											token = make_token(.Literal, 10, 11),
 										},
 									},
 								},
 							},
-							op = .Equal_Equal,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 20, 21)},
-							},
 						},
+						op = .Plus,
+						right = &syntax.Literal_Expr{token = make_token(.Literal, 15, 16)},
 					},
 					op = .Equal_Equal,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 25, 26)},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 20, 21)},
 				},
+				op = .Equal_Equal,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 25, 26)},
 			},
 		},
 		Test {
-			name = "grouping overrides precedence",
-			source = "(1 + 2) * 3",
-			input = []syntax.Token {
+			name     = "grouping overrides precedence",
+			source   = "(1 + 2) * 3",
+			input    = []syntax.Token {
 				make_token(.Left_Paren, 0, 1), // (
 				make_token(.Literal, 1, 2), // 1
 				make_token(.Plus, 3, 4), // +
@@ -113,32 +75,16 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 10, 11), // 3
 				make_token(.EOF, 11, 12),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Grouping_Expr {
-							expr = &syntax.Expr {
-								expr = syntax.Binary_Expr {
-									left = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 1, 2),
-										},
-									},
-									op = .Plus,
-									right = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 5, 6),
-										},
-									},
-								},
-							},
-						},
-					},
-					op = .Star,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Grouping_Expr {
+					expr = &syntax.Binary_Expr {
+						left = &syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+						op = .Plus,
+						right = &syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
 					},
 				},
+				op = .Star,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
 			},
 		},
 		Test {
@@ -150,22 +96,16 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 6, 7),
 				make_token(.EOF, 7, 8),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Equal_Equal,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 6, 7)},
-					},
-				},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Equal_Equal,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 6, 7)},
 			},
 		},
 		Test {
-			name = "nested binary expressions",
-			source = "1 > 2 == 3",
-			input = []syntax.Token {
+			name     = "nested binary expressions",
+			source   = "1 > 2 == 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Greater, 2, 3), // >
 				make_token(.Literal, 4, 5), // 2
@@ -173,171 +113,123 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 9, 10), // 3
 				make_token(.EOF, 10, 11),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Greater,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-						},
-					},
-					op = .Equal_Equal,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 9, 10)},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					op = .Greater,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 				},
+				op = .Equal_Equal,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 9, 10)},
 			},
 		},
 		Test {
-			name = "term addition",
-			source = "1 + 2",
-			input = []syntax.Token {
+			name     = "term addition",
+			source   = "1 + 2",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Plus, 2, 3), // +
 				make_token(.Literal, 4, 5), // 2
 				make_token(.EOF, 5, 6),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Plus,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-					},
-				},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Plus,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 			},
 		},
 		Test {
-			name = "term subtraction",
-			source = "5 - 3",
-			input = []syntax.Token {
+			name     = "term subtraction",
+			source   = "5 - 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 5
 				make_token(.Minus, 2, 3), // -
 				make_token(.Literal, 4, 5), // 3
 				make_token(.EOF, 5, 6),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Minus,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-					},
-				},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Minus,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 			},
 		},
 		Test {
-			name = "factor multiplication",
-			source = "2 * 3",
-			input = []syntax.Token {
+			name     = "factor multiplication",
+			source   = "2 * 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 2
 				make_token(.Star, 2, 3), // *
 				make_token(.Literal, 4, 5), // 3
 				make_token(.EOF, 5, 6),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Star,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-					},
-				},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Star,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 			},
 		},
 		Test {
-			name = "factor division",
-			source = "10 / 2",
-			input = []syntax.Token {
+			name     = "factor division",
+			source   = "10 / 2",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 10
 				make_token(.Slash, 2, 3), // /
 				make_token(.Literal, 4, 5), // 2
 				make_token(.EOF, 5, 6),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Slash,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-					},
-				},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Slash,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 			},
 		},
 		Test {
-			name = "unary negation",
-			source = "-5",
-			input = []syntax.Token {
+			name     = "unary negation",
+			source   = "-5",
+			input    = []syntax.Token {
 				make_token(.Minus, 0, 1), // -
 				make_token(.Literal, 1, 2), // 5
 				make_token(.EOF, 2, 3),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Unary_Expr {
-					op = .Minus,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
-					},
-				},
+			expected = &syntax.Unary_Expr {
+				op = .Minus,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
 			},
 		},
 		Test {
-			name = "unary logical not",
-			source = "!true",
-			input = []syntax.Token {
+			name     = "unary logical not",
+			source   = "!true",
+			input    = []syntax.Token {
 				make_token(.Bang, 0, 1), // !
 				make_token(.Literal, 1, 2), // true
 				make_token(.EOF, 2, 3),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Unary_Expr {
-					op = .Bang,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
-					},
-				},
+			expected = &syntax.Unary_Expr {
+				op = .Bang,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
 			},
 		},
 		Test {
-			name = "double unary",
-			source = "--5",
-			input = []syntax.Token {
+			name     = "double unary",
+			source   = "--5",
+			input    = []syntax.Token {
 				make_token(.Minus, 0, 1), // -
 				make_token(.Minus, 1, 2), // -
 				make_token(.Literal, 2, 3), // 5
 				make_token(.EOF, 3, 4),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Unary_Expr {
+			expected = &syntax.Unary_Expr {
+				op = .Minus,
+				right = &syntax.Unary_Expr {
 					op = .Minus,
-					right = &syntax.Expr {
-						expr = syntax.Unary_Expr {
-							op = .Minus,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 2, 3)},
-							},
-						},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 2, 3)},
 				},
 			},
 		},
 		Test {
-			name = "precedence: multiplication before addition",
-			source = "1 + 2 * 3",
-			input = []syntax.Token {
+			name     = "precedence: multiplication before addition",
+			source   = "1 + 2 * 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Plus, 2, 3), // +
 				make_token(.Literal, 4, 5), // 2
@@ -345,30 +237,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 3
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Plus,
-					right = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-							op = .Star,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-							},
-						},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Plus,
+				right = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+					op = .Star,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 				},
 			},
 		},
 		Test {
-			name = "precedence: division before subtraction",
-			source = "10 - 6 / 2",
-			input = []syntax.Token {
+			name     = "precedence: division before subtraction",
+			source   = "10 - 6 / 2",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 10
 				make_token(.Minus, 2, 3), // -
 				make_token(.Literal, 4, 5), // 6
@@ -376,57 +258,39 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 2
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-					},
-					op = .Minus,
-					right = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-							op = .Slash,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-							},
-						},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+				op = .Minus,
+				right = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+					op = .Slash,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 				},
 			},
 		},
 		Test {
-			name = "precedence: unary before multiplication",
-			source = "-2 * 3",
-			input = []syntax.Token {
+			name     = "precedence: unary before multiplication",
+			source   = "-2 * 3",
+			input    = []syntax.Token {
 				make_token(.Minus, 0, 1), // -
 				make_token(.Literal, 1, 2), // 2
 				make_token(.Star, 3, 4), // *
 				make_token(.Literal, 5, 6), // 3
 				make_token(.EOF, 6, 7),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Unary_Expr {
-							op = .Minus,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
-							},
-						},
-					},
-					op = .Star,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Unary_Expr {
+					op = .Minus,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
 				},
+				op = .Star,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
 			},
 		},
 		Test {
-			name = "complex precedence",
-			source = "1 + 2 * 3 > 4",
-			input = []syntax.Token {
+			name     = "complex precedence",
+			source   = "1 + 2 * 3 > 4",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Plus, 2, 3), // +
 				make_token(.Literal, 4, 5), // 2
@@ -436,43 +300,25 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 12, 13), // 4
 				make_token(.EOF, 13, 14),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Plus,
-							right = &syntax.Expr {
-								expr = syntax.Binary_Expr {
-									left = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 4, 5),
-										},
-									},
-									op = .Star,
-									right = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 8, 9),
-										},
-									},
-								},
-							},
-						},
-					},
-					op = .Greater,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 12, 13)},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					op = .Plus,
+					right = &syntax.Binary_Expr {
+						left = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
+						op = .Star,
+						right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 					},
 				},
+				op = .Greater,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 12, 13)},
 			},
 		},
 		// Operator chaining tests (multiple operators at same precedence level)
 		Test {
-			name = "chained addition (left associative)",
-			source = "1 + 2 + 3",
-			input = []syntax.Token {
+			name     = "chained addition (left associative)",
+			source   = "1 + 2 + 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Plus, 2, 3), // +
 				make_token(.Literal, 4, 5), // 2
@@ -480,30 +326,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 3
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Plus,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-						},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
 					op = .Plus,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 				},
+				op = .Plus,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 			},
 		},
 		Test {
-			name = "chained multiplication (left associative)",
-			source = "2 * 3 * 4",
-			input = []syntax.Token {
+			name     = "chained multiplication (left associative)",
+			source   = "2 * 3 * 4",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 2
 				make_token(.Star, 2, 3), // *
 				make_token(.Literal, 4, 5), // 3
@@ -511,30 +347,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 4
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Star,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-						},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
 					op = .Star,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 				},
+				op = .Star,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 			},
 		},
 		Test {
-			name = "mixed addition and subtraction",
-			source = "10 + 5 - 3",
-			input = []syntax.Token {
+			name     = "mixed addition and subtraction",
+			source   = "10 + 5 - 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 10
 				make_token(.Plus, 2, 3), // +
 				make_token(.Literal, 4, 5), // 5
@@ -542,30 +368,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 3
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Plus,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-						},
-					},
-					op = .Minus,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					op = .Plus,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 				},
+				op = .Minus,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 			},
 		},
 		Test {
-			name = "mixed multiplication and division",
-			source = "12 * 2 / 3",
-			input = []syntax.Token {
+			name     = "mixed multiplication and division",
+			source   = "12 * 2 / 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 12
 				make_token(.Star, 2, 3), // *
 				make_token(.Literal, 4, 5), // 2
@@ -573,30 +389,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 3
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Star,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-						},
-					},
-					op = .Slash,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					op = .Star,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 				},
+				op = .Slash,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 			},
 		},
 		Test {
-			name = "chained equality",
-			source = "1 == 2 == 3",
-			input = []syntax.Token {
+			name     = "chained equality",
+			source   = "1 == 2 == 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Equal_Equal, 2, 4), // ==
 				make_token(.Literal, 5, 6), // 2
@@ -604,30 +410,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 10, 11), // 3
 				make_token(.EOF, 11, 12),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Equal_Equal,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
-							},
-						},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
 					op = .Equal_Equal,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
 				},
+				op = .Equal_Equal,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
 			},
 		},
 		Test {
-			name = "mixed equality operators",
-			source = "1 == 2 != 3",
-			input = []syntax.Token {
+			name     = "mixed equality operators",
+			source   = "1 == 2 != 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Equal_Equal, 2, 4), // ==
 				make_token(.Literal, 5, 6), // 2
@@ -635,30 +431,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 10, 11), // 3
 				make_token(.EOF, 11, 12),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Equal_Equal,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
-							},
-						},
-					},
-					op = .Bang_Equal,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+					op = .Equal_Equal,
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
 				},
+				op = .Bang_Equal,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 10, 11)},
 			},
 		},
 		Test {
-			name = "chained comparison",
-			source = "1 < 2 < 3",
-			input = []syntax.Token {
+			name     = "chained comparison",
+			source   = "1 < 2 < 3",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Less, 2, 3), // <
 				make_token(.Literal, 4, 5), // 2
@@ -666,30 +452,20 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 8, 9), // 3
 				make_token(.EOF, 9, 10),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
-							},
-							op = .Less,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
-							},
-						},
-					},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
 					op = .Less,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 				},
+				op = .Less,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 			},
 		},
 		Test {
-			name = "long chained expression",
-			source = "1 + 2 + 3 + 4",
-			input = []syntax.Token {
+			name     = "long chained expression",
+			source   = "1 + 2 + 3 + 4",
+			input    = []syntax.Token {
 				make_token(.Literal, 0, 1), // 1
 				make_token(.Plus, 2, 3), // +
 				make_token(.Literal, 4, 5), // 2
@@ -699,42 +475,24 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Literal, 12, 13), // 4
 				make_token(.EOF, 13, 14),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Binary_Expr {
-					left = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Binary_Expr {
-									left = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 0, 1),
-										},
-									},
-									op = .Plus,
-									right = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 4, 5),
-										},
-									},
-								},
-							},
-							op = .Plus,
-							right = &syntax.Expr {
-								expr = syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
-							},
-						},
+			expected = &syntax.Binary_Expr {
+				left = &syntax.Binary_Expr {
+					left = &syntax.Binary_Expr {
+						left = &syntax.Literal_Expr{token = make_token(.Literal, 0, 1)},
+						op = .Plus,
+						right = &syntax.Literal_Expr{token = make_token(.Literal, 4, 5)},
 					},
 					op = .Plus,
-					right = &syntax.Expr {
-						expr = syntax.Literal_Expr{token = make_token(.Literal, 12, 13)},
-					},
+					right = &syntax.Literal_Expr{token = make_token(.Literal, 8, 9)},
 				},
+				op = .Plus,
+				right = &syntax.Literal_Expr{token = make_token(.Literal, 12, 13)},
 			},
 		},
 		Test {
-			name = "multiple groupings with equality",
-			source = "(1 + 2 == (2 + 1))",
-			input = []syntax.Token {
+			name     = "multiple groupings with equality",
+			source   = "(1 + 2 == (2 + 1))",
+			input    = []syntax.Token {
 				make_token(.Left_Paren, 0, 1), // (
 				make_token(.Literal, 1, 2), // 1
 				make_token(.Plus, 3, 4), // +
@@ -748,45 +506,19 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				make_token(.Right_Paren, 17, 18), // )
 				make_token(.EOF, 18, 19),
 			},
-			expected = syntax.Expr {
-				expr = syntax.Grouping_Expr {
-					expr = &syntax.Expr {
-						expr = syntax.Binary_Expr {
-							left = &syntax.Expr {
-								expr = syntax.Binary_Expr {
-									left = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 1, 2),
-										},
-									},
-									op = .Plus,
-									right = &syntax.Expr {
-										expr = syntax.Literal_Expr {
-											token = make_token(.Literal, 5, 6),
-										},
-									},
-								},
-							},
-							op = .Equal_Equal,
-							right = &syntax.Expr {
-								expr = syntax.Grouping_Expr {
-									expr = &syntax.Expr {
-										expr = syntax.Binary_Expr {
-											left = &syntax.Expr {
-												expr = syntax.Literal_Expr {
-													token = make_token(.Literal, 11, 12),
-												},
-											},
-											op = .Plus,
-											right = &syntax.Expr {
-												expr = syntax.Literal_Expr {
-													token = make_token(.Literal, 15, 16),
-												},
-											},
-										},
-									},
-								},
-							},
+			expected = &syntax.Grouping_Expr {
+				expr = &syntax.Binary_Expr {
+					left = &syntax.Binary_Expr {
+						left = &syntax.Literal_Expr{token = make_token(.Literal, 1, 2)},
+						op = .Plus,
+						right = &syntax.Literal_Expr{token = make_token(.Literal, 5, 6)},
+					},
+					op = .Equal_Equal,
+					right = &syntax.Grouping_Expr {
+						expr = &syntax.Binary_Expr {
+							left = &syntax.Literal_Expr{token = make_token(.Literal, 11, 12)},
+							op = .Plus,
+							right = &syntax.Literal_Expr{token = make_token(.Literal, 15, 16)},
 						},
 					},
 				},
@@ -820,7 +552,7 @@ test_basic_expressions :: proc(t: ^testing.T) {
 		got := stmts[0].(^syntax.Expr_Stmt).expr
 
 		expected := test.expected
-		if !syntax.expr_eq(got, &expected) {
+		if !syntax.expr_eq(got, expected) {
 			log_ast(test.source, stmts[:])
 			testing.expectf(
 				t,
@@ -828,7 +560,7 @@ test_basic_expressions :: proc(t: ^testing.T) {
 				"%s: assertion failed.\nExpected: %v\nFound: %v",
 				test.name,
 				test.expected,
-				got^,
+				got,
 			)
 			testing.fail_now(t)
 		}
@@ -924,8 +656,8 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 			name         = "decl: literal where type expected",
 			source       = "x : 5",
 			input        = []syntax.Token {
-				make_token(.Ident, 0, 1),   // x
-				make_token(.Colon, 2, 3),   // :
+				make_token(.Ident, 0, 1), // x
+				make_token(.Colon, 2, 3), // :
 				make_token(.Literal, 4, 5), // 5
 				make_token(.EOF, 5, 6),
 			},
@@ -936,11 +668,11 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 			name         = "decl: non-type keyword as type",
 			source       = "x : if = 5",
 			input        = []syntax.Token {
-				make_token(.Ident, 0, 1),                // x
-				make_token(.Colon, 2, 3),                // :
-				make_token(.Keyword, 4, 6, kw = .If),           // if
-				make_token(.Equal, 7, 8),                // =
-				make_token(.Literal, 9, 10),             // 5
+				make_token(.Ident, 0, 1), // x
+				make_token(.Colon, 2, 3), // :
+				make_token(.Keyword, 4, 6, kw = .If), // if
+				make_token(.Equal, 7, 8), // =
+				make_token(.Literal, 9, 10), // 5
 				make_token(.EOF, 10, 11),
 			},
 			should_error = true,
@@ -991,13 +723,13 @@ test_basic_expressions_errors :: proc(t: ^testing.T) {
 @(test)
 test_declarations :: proc(t: ^testing.T) {
 	Decl_Test :: struct {
-		name:        string,
-		source:      string,
-		input:       []syntax.Token,
-		constant:    bool,
-		has_type:    bool,
-		type_name:   string,
-		has_value:   bool,
+		name:      string,
+		source:    string,
+		input:     []syntax.Token,
+		constant:  bool,
+		has_type:  bool,
+		type_name: string,
+		has_value: bool,
 	}
 
 	tests := []Decl_Test {
@@ -1011,8 +743,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 5, 6),
 				make_token(.EOF, 6, 7),
 			},
-			constant  = false,
-			has_type  = false,
+			constant = false,
+			has_type = false,
 			has_value = true,
 		},
 		// x :: 5
@@ -1025,8 +757,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 5, 6),
 				make_token(.EOF, 6, 7),
 			},
-			constant  = true,
-			has_type  = false,
+			constant = true,
+			has_type = false,
 			has_value = true,
 		},
 		// x : number = 5
@@ -1041,8 +773,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 13, 14),
 				make_token(.EOF, 14, 15),
 			},
-			constant  = false,
-			has_type  = true,
+			constant = false,
+			has_type = true,
 			type_name = "number",
 			has_value = true,
 		},
@@ -1058,8 +790,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 13, 14),
 				make_token(.EOF, 14, 15),
 			},
-			constant  = true,
-			has_type  = true,
+			constant = true,
+			has_type = true,
 			type_name = "number",
 			has_value = true,
 		},
@@ -1073,8 +805,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Ident, 4, 10),
 				make_token(.EOF, 10, 11),
 			},
-			constant  = false,
-			has_type  = true,
+			constant = false,
+			has_type = true,
 			type_name = "number",
 			has_value = false,
 		},
@@ -1090,8 +822,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 11, 15),
 				make_token(.EOF, 15, 16),
 			},
-			constant  = false,
-			has_type  = true,
+			constant = false,
+			has_type = true,
 			type_name = "bool",
 			has_value = true,
 		},
@@ -1107,8 +839,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 13, 17),
 				make_token(.EOF, 17, 18),
 			},
-			constant  = false,
-			has_type  = true,
+			constant = false,
+			has_type = true,
 			type_name = "string",
 			has_value = true,
 		},
@@ -1124,8 +856,8 @@ test_declarations :: proc(t: ^testing.T) {
 				make_token(.Literal, 10, 11),
 				make_token(.EOF, 11, 12),
 			},
-			constant  = false,
-			has_type  = true,
+			constant = false,
+			has_type = true,
 			type_name = "Foo",
 			has_value = true,
 		},
@@ -1216,10 +948,7 @@ test_function_declarations :: proc(t: ^testing.T) {
 	}
 
 	tests := []Fn_Decl_Test {
-		{
-			name = "no arguments, no returns, with body",
-			source = "foo :: fn() {}",
-		},
+		{name = "no arguments, no returns, with body", source = "foo :: fn() {}"},
 		{
 			name = "one bare return type",
 			source = "foo :: fn() -> number {}",
@@ -1256,11 +985,7 @@ test_function_declarations :: proc(t: ^testing.T) {
 			arg_types = []string{"number"},
 			return_types = []string{"number", "number"},
 		},
-		{
-			name = "stub",
-			source = "foo :: fn()",
-			stub = true,
-		},
+		{name = "stub", source = "foo :: fn()", stub = true},
 		{
 			name = "typed constant fn declaration",
 			source = "foo: fn() -> number : fn() -> number { return 5 }",
@@ -1310,28 +1035,97 @@ test_function_declarations :: proc(t: ^testing.T) {
 			continue
 		}
 
-		testing.expectf(t, token_text(test.source, decl.name) == "foo", "%s: wrong function name", test.name)
+		testing.expectf(
+			t,
+			token_text(test.source, decl.name) == "foo",
+			"%s: wrong function name",
+			test.name,
+		)
 		_, has_declared_type := decl.type.?
-		testing.expectf(t, has_declared_type == test.has_declared_type, "%s: declared-type presence=%v, want %v", test.name, has_declared_type, test.has_declared_type)
-		testing.expectf(t, decl.lit.async == test.async, "%s: async=%v, want %v", test.name, decl.lit.async, test.async)
-		testing.expectf(t, (decl.lit.block == nil) == test.stub, "%s: stub=%v, want %v", test.name, decl.lit.block == nil, test.stub)
+		testing.expectf(
+			t,
+			has_declared_type == test.has_declared_type,
+			"%s: declared-type presence=%v, want %v",
+			test.name,
+			has_declared_type,
+			test.has_declared_type,
+		)
+		testing.expectf(
+			t,
+			decl.lit.async == test.async,
+			"%s: async=%v, want %v",
+			test.name,
+			decl.lit.async,
+			test.async,
+		)
+		testing.expectf(
+			t,
+			(decl.lit.block == nil) == test.stub,
+			"%s: stub=%v, want %v",
+			test.name,
+			decl.lit.block == nil,
+			test.stub,
+		)
 		_, has_block := decl.lit.block.?
-		testing.expectf(t, has_block == !test.stub, "%s: body presence does not match stub state", test.name)
+		testing.expectf(
+			t,
+			has_block == !test.stub,
+			"%s: body presence does not match stub state",
+			test.name,
+		)
 
-		testing.expectf(t, len(decl.lit.args) == len(test.arg_names), "%s: got %d args, want %d", test.name, len(decl.lit.args), len(test.arg_names))
+		testing.expectf(
+			t,
+			len(decl.lit.args) == len(test.arg_names),
+			"%s: got %d args, want %d",
+			test.name,
+			len(decl.lit.args),
+			len(test.arg_names),
+		)
 		for arg, i in decl.lit.args {
 			if i >= len(test.arg_names) do break
-			testing.expectf(t, token_text(test.source, arg.name) == test.arg_names[i], "%s: wrong argument %d name", test.name, i)
-			testing.expectf(t, token_text(test.source, arg.type.variant.(syntax.Token)) == test.arg_types[i], "%s: wrong argument %d type", test.name, i)
+			testing.expectf(
+				t,
+				token_text(test.source, arg.name) == test.arg_names[i],
+				"%s: wrong argument %d name",
+				test.name,
+				i,
+			)
+			testing.expectf(
+				t,
+				token_text(test.source, arg.type.variant.(syntax.Token)) == test.arg_types[i],
+				"%s: wrong argument %d type",
+				test.name,
+				i,
+			)
 		}
 
 		returns, has_returns := decl.lit.return_type.?
-		testing.expectf(t, has_returns == (len(test.return_types) > 0), "%s: return presence mismatch", test.name)
+		testing.expectf(
+			t,
+			has_returns == (len(test.return_types) > 0),
+			"%s: return presence mismatch",
+			test.name,
+		)
 		if has_returns {
-			testing.expectf(t, len(returns) == len(test.return_types), "%s: got %d returns, want %d", test.name, len(returns), len(test.return_types))
+			testing.expectf(
+				t,
+				len(returns) == len(test.return_types),
+				"%s: got %d returns, want %d",
+				test.name,
+				len(returns),
+				len(test.return_types),
+			)
 			for return_type, i in returns {
 				if i >= len(test.return_types) do break
-				testing.expectf(t, token_text(test.source, return_type.variant.(syntax.Token)) == test.return_types[i], "%s: wrong return type %d", test.name, i)
+				testing.expectf(
+					t,
+					token_text(test.source, return_type.variant.(syntax.Token)) ==
+					test.return_types[i],
+					"%s: wrong return type %d",
+					test.name,
+					i,
+				)
 			}
 		}
 	}
@@ -1347,9 +1141,9 @@ test_return_statements :: proc(t: ^testing.T) {
 	}
 
 	tests := []Return_Test {
-		{name = "bare return",      source = "return",       value_count = 0},
-		{name = "single value",     source = "return 5",     value_count = 1},
-		{name = "multiple values",  source = "return 5, 6",  value_count = 2},
+		{name = "bare return", source = "return", value_count = 0},
+		{name = "single value", source = "return 5", value_count = 1},
+		{name = "multiple values", source = "return 5, 6", value_count = 2},
 		{name = "expression value", source = "return 1 + 2", value_count = 1},
 	}
 
@@ -1384,7 +1178,14 @@ test_return_statements :: proc(t: ^testing.T) {
 			testing.expectf(t, false, "%s: expected Return_Stmt", test.name)
 			continue
 		}
-		testing.expectf(t, len(ret.exprs) == test.value_count, "%s: got %d values, want %d", test.name, len(ret.exprs), test.value_count)
+		testing.expectf(
+			t,
+			len(ret.exprs) == test.value_count,
+			"%s: got %d values, want %d",
+			test.name,
+			len(ret.exprs),
+			test.value_count,
+		)
 	}
 }
 
@@ -1461,7 +1262,13 @@ test_expr_spans :: proc(t: ^testing.T) {
 		{name = "grouping includes parens", source = "(1 + 2)", lexeme = "(1 + 2)"},
 		{name = "logical", source = "a and b", lexeme = "a and b"},
 		{name = "call with args", source = "x := foo(a, b)", lexeme = "foo(a, b)", decl = true},
-		{name = "fn literal in list", source = "a, b := 1, fn(p: number) {}", lexeme = "fn(p: number) {}", decl = true, index = 1},
+		{
+			name = "fn literal in list",
+			source = "a, b := 1, fn(p: number) {}",
+			lexeme = "fn(p: number) {}",
+			decl = true,
+			index = 1,
+		},
 	}
 
 	for test in tests {
@@ -1490,7 +1297,7 @@ test_expr_spans :: proc(t: ^testing.T) {
 			continue
 		}
 
-		expr: ^syntax.Expr
+		expr: syntax.Expr
 		if test.decl {
 			decl, ok := stmts[0].(^syntax.Ident_Decl_Stmt)
 			if !ok {
@@ -1512,13 +1319,20 @@ test_expr_spans :: proc(t: ^testing.T) {
 			expr = expr_stmt.expr
 		}
 
-		span := expr.span
+		span := syntax.span_of_expr(expr)
 		if span.start < 0 || span.end > len(test.source) || span.start > span.end {
 			testing.expectf(t, false, "%s: span out of bounds: %v", test.name, span)
 			continue
 		}
 		got := test.source[span.start:span.end]
-		testing.expectf(t, got == test.lexeme, "%s: span covers %q, want %q", test.name, got, test.lexeme)
+		testing.expectf(
+			t,
+			got == test.lexeme,
+			"%s: span covers %q, want %q",
+			test.name,
+			got,
+			test.lexeme,
+		)
 	}
 }
 
@@ -1537,11 +1351,7 @@ test_statement_spans :: proc(t: ^testing.T) {
 		{name = "bare return", source = "return\n", expected = "return"},
 		{name = "multi return", source = "return 1, 2\n", expected = "return 1, 2"},
 		{name = "empty block", source = "{}\n", expected = "{}"},
-		{
-			name = "multiline block",
-			source = "{\n  x := 1\n}\n",
-			expected = "{\n  x := 1\n}",
-		},
+		{name = "multiline block", source = "{\n  x := 1\n}\n", expected = "{\n  x := 1\n}"},
 		{name = "if else", source = "if true {} else {}\n", expected = "if true {} else {}"},
 		{name = "function stub", source = "foo :: fn()\n", expected = "foo :: fn()"},
 		{
@@ -1610,7 +1420,7 @@ test_statement_component_spans :: proc(t: ^testing.T) {
 		expect_span_text(t, source, decl.op.span, ":=", "declaration operator")
 		values, has_value := decl.value.?
 		if has_value && len(values) == 1 {
-			call, is_call := values[0].expr.(syntax.Fn_Call_Expr)
+			call, is_call := values[0].(^syntax.Fn_Call_Expr)
 			testing.expect(t, is_call, "expected call expression")
 			if is_call {
 				expect_span_text(t, source, call.span, "foo(1)", "call expression")
@@ -1718,31 +1528,31 @@ test_nested_expression_and_operator_spans :: proc(t: ^testing.T) {
 	if !ok do return
 	expect_span_text(t, source, stmt.span, source, "expression statement")
 
-	logical, is_logical := stmt.expr.expr.(syntax.Logical_Expr)
+	logical, is_logical := stmt.expr.(^syntax.Logical_Expr)
 	testing.expect(t, is_logical, "expected Logical_Expr")
 	if !is_logical do return
 	expect_span_text(t, source, logical.op_span, "and", "logical operator")
-	expect_span_text(t, source, logical.left.span, "1 + 2 * -3", "logical left")
-	expect_span_text(t, source, logical.right.span, "true", "logical right")
+	expect_span_text(t, source, syntax.span_of_expr(logical.left), "1 + 2 * -3", "logical left")
+	expect_span_text(t, source, syntax.span_of_expr(logical.right), "true", "logical right")
 
-	plus, is_plus := logical.left.expr.(syntax.Binary_Expr)
+	plus, is_plus := logical.left.(^syntax.Binary_Expr)
 	testing.expect(t, is_plus, "expected addition")
 	if !is_plus do return
 	expect_span_text(t, source, plus.op_span, "+", "addition operator")
-	expect_span_text(t, source, plus.left.span, "1", "addition left")
-	expect_span_text(t, source, plus.right.span, "2 * -3", "addition right")
+	expect_span_text(t, source, syntax.span_of_expr(plus.left), "1", "addition left")
+	expect_span_text(t, source, syntax.span_of_expr(plus.right), "2 * -3", "addition right")
 
-	product, is_product := plus.right.expr.(syntax.Binary_Expr)
+	product, is_product := plus.right.(^syntax.Binary_Expr)
 	testing.expect(t, is_product, "expected multiplication")
 	if !is_product do return
 	expect_span_text(t, source, product.op_span, "*", "multiplication operator")
 
-	negative, is_negative := product.right.expr.(syntax.Unary_Expr)
+	negative, is_negative := product.right.(^syntax.Unary_Expr)
 	testing.expect(t, is_negative, "expected unary expression")
 	if !is_negative do return
-	expect_span_text(t, source, product.right.span, "-3", "unary expression")
+	expect_span_text(t, source, syntax.span_of_expr(product.right), "-3", "unary expression")
 	expect_span_text(t, source, negative.op_span, "-", "unary operator")
-	expect_span_text(t, source, negative.right.span, "3", "unary operand")
+	expect_span_text(t, source, syntax.span_of_expr(negative.right), "3", "unary operand")
 }
 
 @(test)
@@ -1790,11 +1600,29 @@ test_function_calls :: proc(t: ^testing.T) {
 			testing.expectf(t, false, "%s: expected Fn_Call_Stmt", test.name)
 			continue
 		}
-		testing.expectf(t, token_text(test.source, call.call.name) == "foo", "%s: wrong call name", test.name)
-		testing.expectf(t, len(call.call.args) == len(test.args), "%s: got %d args, want %d", test.name, len(call.call.args), len(test.args))
+		testing.expectf(
+			t,
+			token_text(test.source, call.call.name) == "foo",
+			"%s: wrong call name",
+			test.name,
+		)
+		testing.expectf(
+			t,
+			len(call.call.args) == len(test.args),
+			"%s: got %d args, want %d",
+			test.name,
+			len(call.call.args),
+			len(test.args),
+		)
 		for arg, i in call.call.args {
 			if i >= len(test.args) do break
-			testing.expectf(t, arg_text(test.source, arg) == test.args[i], "%s: wrong call argument %d", test.name, i)
+			testing.expectf(
+				t,
+				arg_text(test.source, arg) == test.args[i],
+				"%s: wrong call argument %d",
+				test.name,
+				i,
+			)
 		}
 	}
 }
@@ -1810,7 +1638,12 @@ test_function_call_single_targets :: proc(t: ^testing.T) {
 
 	tests := []Target_Test {
 		{name = "mutable declaration", source = "a := foo()", declaration = true},
-		{name = "constant declaration", source = "a :: foo()", declaration = true, constant = true},
+		{
+			name = "constant declaration",
+			source = "a :: foo()",
+			declaration = true,
+			constant = true,
+		},
 		{name = "assignment to existing target", source = "a = foo()"},
 	}
 
@@ -1846,10 +1679,28 @@ test_function_call_single_targets :: proc(t: ^testing.T) {
 				testing.expectf(t, false, "%s: expected Ident_Decl_Stmt", test.name)
 				continue
 			}
-			testing.expectf(t, len(decl.names) == 1, "%s: got %d targets, want 1", test.name, len(decl.names))
+			testing.expectf(
+				t,
+				len(decl.names) == 1,
+				"%s: got %d targets, want 1",
+				test.name,
+				len(decl.names),
+			)
 			if len(decl.names) == 0 do continue
-			testing.expectf(t, token_text(test.source, decl.names[0]) == "a", "%s: wrong target name", test.name)
-			testing.expectf(t, decl.constant == test.constant, "%s: constant=%v, want %v", test.name, decl.constant, test.constant)
+			testing.expectf(
+				t,
+				token_text(test.source, decl.names[0]) == "a",
+				"%s: wrong target name",
+				test.name,
+			)
+			testing.expectf(
+				t,
+				decl.constant == test.constant,
+				"%s: constant=%v, want %v",
+				test.name,
+				decl.constant,
+				test.constant,
+			)
 			value, has_value := decl.value.?
 			if !has_value {
 				testing.expectf(t, false, "%s: declaration has no function call value", test.name)
@@ -1857,19 +1708,40 @@ test_function_call_single_targets :: proc(t: ^testing.T) {
 			}
 			call, is_call := expect_single_call(t, test.name, value)
 			if !is_call do continue
-			testing.expectf(t, token_text(test.source, call.name) == "foo", "%s: wrong call name", test.name)
+			testing.expectf(
+				t,
+				token_text(test.source, call.name) == "foo",
+				"%s: wrong call name",
+				test.name,
+			)
 		} else {
 			assignment, ok := stmts[0].(^syntax.Ident_Assignment_Stmt)
 			if !ok {
 				testing.expectf(t, false, "%s: expected Ident_Assignment_Stmt", test.name)
 				continue
 			}
-			testing.expectf(t, len(assignment.names) == 1, "%s: got %d targets, want 1", test.name, len(assignment.names))
+			testing.expectf(
+				t,
+				len(assignment.names) == 1,
+				"%s: got %d targets, want 1",
+				test.name,
+				len(assignment.names),
+			)
 			if len(assignment.names) == 0 do continue
-			testing.expectf(t, token_text(test.source, assignment.names[0]) == "a", "%s: wrong target name", test.name)
+			testing.expectf(
+				t,
+				token_text(test.source, assignment.names[0]) == "a",
+				"%s: wrong target name",
+				test.name,
+			)
 			call, is_call := expect_single_call(t, test.name, assignment.value)
 			if !is_call do continue
-			testing.expectf(t, token_text(test.source, call.name) == "foo", "%s: wrong call name", test.name)
+			testing.expectf(
+				t,
+				token_text(test.source, call.name) == "foo",
+				"%s: wrong call name",
+				test.name,
+			)
 		}
 	}
 }
@@ -1885,30 +1757,23 @@ test_function_call_multiple_targets :: proc(t: ^testing.T) {
 	}
 
 	tests := []Target_Test {
-		{
-			name = "mutable declaration",
-			source = "a, b := foo()",
-			declaration = true
-		},
+		{name = "mutable declaration", source = "a, b := foo()", declaration = true},
 		{
 			name = "constant declaration",
 			source = "a, b :: foo()",
 			declaration = true,
-			constant = true
+			constant = true,
 		},
-		{
-			name = "assignment to existing targets",
-			source = "a, b = foo()"
-		},
+		{name = "assignment to existing targets", source = "a, b = foo()"},
 		{
 			name = "assignment with one call argument",
 			source = "a, b = foo(x)",
-			args = []string{"x"}
+			args = []string{"x"},
 		},
 		{
 			name = "assignment with multiple call arguments",
 			source = "a, b = foo(x, y)",
-			args = []string{"x", "y"}
+			args = []string{"x", "y"},
 		},
 	}
 
@@ -1938,14 +1803,21 @@ test_function_call_multiple_targets :: proc(t: ^testing.T) {
 			continue
 		}
 
-		rhs: [dynamic]^syntax.Expr
+		rhs: [dynamic]syntax.Expr
 		if test.declaration {
 			decl, ok := stmts[0].(^syntax.Ident_Decl_Stmt)
 			if !ok {
 				testing.expectf(t, false, "%s: expected Ident_Decl_Stmt", test.name)
 				continue
 			}
-			testing.expectf(t, decl.constant == test.constant, "%s: constant=%v, want %v", test.name, decl.constant, test.constant)
+			testing.expectf(
+				t,
+				decl.constant == test.constant,
+				"%s: constant=%v, want %v",
+				test.name,
+				decl.constant,
+				test.constant,
+			)
 			expect_target_names(t, test.name, test.source, decl.names[:])
 			value, has_value := decl.value.?
 			if !has_value {
@@ -1965,11 +1837,29 @@ test_function_call_multiple_targets :: proc(t: ^testing.T) {
 
 		call, ok := expect_single_call(t, test.name, rhs)
 		if !ok do continue
-		testing.expectf(t, token_text(test.source, call.name) == "foo", "%s: wrong call name", test.name)
-		testing.expectf(t, len(call.args) == len(test.args), "%s: got %d args, want %d", test.name, len(call.args), len(test.args))
+		testing.expectf(
+			t,
+			token_text(test.source, call.name) == "foo",
+			"%s: wrong call name",
+			test.name,
+		)
+		testing.expectf(
+			t,
+			len(call.args) == len(test.args),
+			"%s: got %d args, want %d",
+			test.name,
+			len(call.args),
+			len(test.args),
+		)
 		for arg, i in call.args {
 			if i >= len(test.args) do break
-			testing.expectf(t, arg_text(test.source, arg) == test.args[i], "%s: wrong call argument %d", test.name, i)
+			testing.expectf(
+				t,
+				arg_text(test.source, arg) == test.args[i],
+				"%s: wrong call argument %d",
+				test.name,
+				i,
+			)
 		}
 	}
 }
@@ -1985,7 +1875,12 @@ test_multiple_direct_rhs_values :: proc(t: ^testing.T) {
 
 	tests := []Rhs_Test {
 		{name = "mutable declaration", source = "a, b := 1, 2", declaration = true},
-		{name = "constant declaration", source = "a, b :: 1, 2", declaration = true, constant = true},
+		{
+			name = "constant declaration",
+			source = "a, b :: 1, 2",
+			declaration = true,
+			constant = true,
+		},
 		{name = "assignment to existing targets", source = "a, b = 1, 2"},
 	}
 
@@ -2015,14 +1910,21 @@ test_multiple_direct_rhs_values :: proc(t: ^testing.T) {
 			continue
 		}
 
-		rhs: [dynamic]^syntax.Expr
+		rhs: [dynamic]syntax.Expr
 		if test.declaration {
 			decl, ok := stmts[0].(^syntax.Ident_Decl_Stmt)
 			if !ok {
 				testing.expectf(t, false, "%s: expected Ident_Decl_Stmt", test.name)
 				continue
 			}
-			testing.expectf(t, decl.constant == test.constant, "%s: constant=%v, want %v", test.name, decl.constant, test.constant)
+			testing.expectf(
+				t,
+				decl.constant == test.constant,
+				"%s: constant=%v, want %v",
+				test.name,
+				decl.constant,
+				test.constant,
+			)
 			expect_target_names(t, test.name, test.source, decl.names[:])
 			value, has_value := decl.value.?
 			if !has_value {
@@ -2065,15 +1967,30 @@ test_multiple_call_rhs_values :: proc(t: ^testing.T) {
 		testing.expectf(t, len(rhs) == 2, "%s: got %d values, want 2", source, len(rhs))
 		if len(rhs) != 2 do continue
 
-		first, first_ok := rhs[0].expr.(syntax.Fn_Call_Expr)
-		second, second_ok := rhs[1].expr.(syntax.Fn_Call_Expr)
+		first, first_ok := rhs[0].(^syntax.Fn_Call_Expr)
+		second, second_ok := rhs[1].(^syntax.Fn_Call_Expr)
 		if !first_ok || !second_ok {
 			testing.expectf(t, false, "%s: both RHS values should be Call_Expr", source)
 			continue
 		}
-		testing.expectf(t, token_text(source, first.name) == "foo" && token_text(source, second.name) == "foo", "%s: wrong call name", source)
-		testing.expectf(t, len(first.args) == 1 && arg_text(source, first.args[0]) == "x", "%s: wrong first call arg", source)
-		testing.expectf(t, len(second.args) == 1 && arg_text(source, second.args[0]) == "y", "%s: wrong second call arg", source)
+		testing.expectf(
+			t,
+			token_text(source, first.name) == "foo" && token_text(source, second.name) == "foo",
+			"%s: wrong call name",
+			source,
+		)
+		testing.expectf(
+			t,
+			len(first.args) == 1 && arg_text(source, first.args[0]) == "x",
+			"%s: wrong first call arg",
+			source,
+		)
+		testing.expectf(
+			t,
+			len(second.args) == 1 && arg_text(source, second.args[0]) == "y",
+			"%s: wrong second call arg",
+			source,
+		)
 	}
 }
 
@@ -2094,12 +2011,17 @@ test_mixed_rhs_values :: proc(t: ^testing.T) {
 		testing.expectf(t, len(rhs) == 2, "%s: got %d values, want 2", source, len(rhs))
 		if len(rhs) != 2 do continue
 
-		_, lit_ok := rhs[0].expr.(syntax.Literal_Expr)
-		call, call_ok := rhs[1].expr.(syntax.Fn_Call_Expr)
+		_, lit_ok := rhs[0].(^syntax.Literal_Expr)
+		call, call_ok := rhs[1].(^syntax.Fn_Call_Expr)
 		testing.expectf(t, lit_ok, "%s: first value should be a literal expr", source)
 		testing.expectf(t, call_ok, "%s: second value should be a Call_Expr", source)
 		if call_ok {
-			testing.expectf(t, token_text(source, call.name) == "foo", "%s: wrong call name", source)
+			testing.expectf(
+				t,
+				token_text(source, call.name) == "foo",
+				"%s: wrong call name",
+				source,
+			)
 		}
 	}
 }
@@ -2110,16 +2032,16 @@ test_fn_literal_in_rhs :: proc(t: ^testing.T) {
 	// assignment (`=`) list. Multi-name constant (`::`) lists reject fn literals -
 	// see test_multi_name_const_rejects_fn_literal.
 	Lit_Test :: struct {
-		name:       string,
-		source:     string,
+		name:      string,
+		source:    string,
 		// Index of the value expected to be a function literal.
-		lit_index:  int,
+		lit_index: int,
 	}
 
 	tests := []Lit_Test {
 		{name = "literal then fn", source = "a, b := 5, fn() {}", lit_index = 1},
 		{name = "fn then literal", source = "a, b := fn() {}, 5", lit_index = 0},
-		{name = "async fn",        source = "a, b := 5, async fn() {}", lit_index = 1},
+		{name = "async fn", source = "a, b := 5, async fn() {}", lit_index = 1},
 		{name = "fn literal in multiple assignment", source = "a, b = 5, fn() {}", lit_index = 1},
 	}
 
@@ -2135,15 +2057,26 @@ test_fn_literal_in_rhs :: proc(t: ^testing.T) {
 		testing.expectf(t, len(rhs) == 2, "%s: got %d values, want 2", test.name, len(rhs))
 		if len(rhs) != 2 do continue
 
-		lit, lit_ok := rhs[test.lit_index].expr.(syntax.Fn_Literal_Expr)
+		lit, lit_ok := rhs[test.lit_index].(^syntax.Fn_Literal_Expr)
 		if !lit_ok {
-			testing.expectf(t, false, "%s: value %d should be a Fn_Literal_Expr", test.name, test.lit_index)
+			testing.expectf(
+				t,
+				false,
+				"%s: value %d should be a Fn_Literal_Expr",
+				test.name,
+				test.lit_index,
+			)
 			continue
 		}
 
 		_, has_block := lit.block.?
 		testing.expectf(t, has_block, "%s: function literal should have a body", test.name)
-		testing.expectf(t, lit.async == strings.contains(test.source, "async"), "%s: async mismatch", test.name)
+		testing.expectf(
+			t,
+			lit.async == strings.contains(test.source, "async"),
+			"%s: async mismatch",
+			test.name,
+		)
 	}
 }
 
@@ -2159,14 +2092,18 @@ test_multi_name_const_rejects_fn_literal :: proc(t: ^testing.T) {
 	}
 
 	tests := []Case {
-		{name = "literal then fn",         source = "a, b :: 5, fn() {}",         should_error = true},
-		{name = "fn then literal",         source = "a, b :: fn() {}, 5",         should_error = true},
-		{name = "async fn",                source = "a, b :: 5, async fn() {}",   should_error = true},
-		{name = "three names",             source = "a, b, c :: 1, fn() {}, 3",   should_error = true},
-		{name = "typed constant",          source = "a, b : number : 5, fn() {}", should_error = true},
-		{name = "mutable allows fn",       source = "a, b := 5, fn() {}",         should_error = false},
-		{name = "typed mutable allows fn", source = "a, b : number = 5, fn() {}", should_error = false},
-		{name = "assignment allows fn",    source = "a, b = 5, fn() {}",          should_error = false},
+		{name = "literal then fn", source = "a, b :: 5, fn() {}", should_error = true},
+		{name = "fn then literal", source = "a, b :: fn() {}, 5", should_error = true},
+		{name = "async fn", source = "a, b :: 5, async fn() {}", should_error = true},
+		{name = "three names", source = "a, b, c :: 1, fn() {}, 3", should_error = true},
+		{name = "typed constant", source = "a, b : number : 5, fn() {}", should_error = true},
+		{name = "mutable allows fn", source = "a, b := 5, fn() {}", should_error = false},
+		{
+			name = "typed mutable allows fn",
+			source = "a, b : number = 5, fn() {}",
+			should_error = false,
+		},
+		{name = "assignment allows fn", source = "a, b = 5, fn() {}", should_error = false},
 	}
 
 	for test in tests {
@@ -2222,7 +2159,11 @@ test_single_name_mutable_fn_is_value_binding :: proc(t: ^testing.T) {
 
 	tests := []Case {
 		{name = "untyped \":=\"", source = "foo := fn() {}", has_type = false},
-		{name = "typed \"=\"", source = "foo: fn() -> number = fn() -> number { return 5 }", has_type = true},
+		{
+			name = "typed \"=\"",
+			source = "foo: fn() -> number = fn() -> number { return 5 }",
+			has_type = true,
+		},
 	}
 
 	for test in tests {
@@ -2264,14 +2205,21 @@ test_single_name_mutable_fn_is_value_binding :: proc(t: ^testing.T) {
 		testing.expectf(t, !decl.constant, "%s: expected a mutable declaration", test.name)
 
 		_, has_type := decl.type.?
-		testing.expectf(t, has_type == test.has_type, "%s: type presence=%v, want %v", test.name, has_type, test.has_type)
+		testing.expectf(
+			t,
+			has_type == test.has_type,
+			"%s: type presence=%v, want %v",
+			test.name,
+			has_type,
+			test.has_type,
+		)
 
 		value, has_value := decl.value.?
 		if !has_value || len(value) != 1 {
 			testing.expectf(t, false, "%s: expected exactly one RHS value", test.name)
 			continue
 		}
-		_, is_lit := value[0].expr.(syntax.Fn_Literal_Expr)
+		_, is_lit := value[0].(^syntax.Fn_Literal_Expr)
 		testing.expectf(t, is_lit, "%s: RHS value should be a Fn_Literal_Expr", test.name)
 	}
 }
@@ -2282,7 +2230,7 @@ test_single_name_mutable_fn_is_value_binding :: proc(t: ^testing.T) {
 
 @(test)
 test_call_argument_errors :: proc(t: ^testing.T) {
-	expect_parse_error(t, "foo(1", .Unexpected_Token)    // missing ')'
+	expect_parse_error(t, "foo(1", .Unexpected_Token) // missing ')'
 	expect_parse_error(t, "foo(1 2)", .Unexpected_Token) // missing ','
 }
 
@@ -2299,8 +2247,8 @@ test_call_trailing_comma :: proc(t: ^testing.T) {
 
 @(test)
 test_fn_param_errors :: proc(t: ^testing.T) {
-	expect_parse_error(t, "foo :: fn(x) {}", .Unexpected_Token)         // missing ': type'
-	expect_parse_error(t, "foo :: fn(x:) {}", .Incorrect_Type_Expr)     // missing type
+	expect_parse_error(t, "foo :: fn(x) {}", .Unexpected_Token) // missing ': type'
+	expect_parse_error(t, "foo :: fn(x:) {}", .Incorrect_Type_Expr) // missing type
 	expect_parse_error(t, "foo :: fn(1: number) {}", .Unexpected_Token) // non-ident name
 }
 
@@ -2423,9 +2371,30 @@ test_function_type_declarations :: proc(t: ^testing.T) {
 			continue
 		}
 
-		testing.expectf(t, fn_type.async == test.async, "%s: async=%v, want %v", test.name, fn_type.async, test.async)
-		testing.expectf(t, len(fn_type.params) == test.param_count, "%s: got %d params, want %d", test.name, len(fn_type.params), test.param_count)
-		testing.expectf(t, len(fn_type.returns) == test.return_count, "%s: got %d returns, want %d", test.name, len(fn_type.returns), test.return_count)
+		testing.expectf(
+			t,
+			fn_type.async == test.async,
+			"%s: async=%v, want %v",
+			test.name,
+			fn_type.async,
+			test.async,
+		)
+		testing.expectf(
+			t,
+			len(fn_type.params) == test.param_count,
+			"%s: got %d params, want %d",
+			test.name,
+			len(fn_type.params),
+			test.param_count,
+		)
+		testing.expectf(
+			t,
+			len(fn_type.returns) == test.return_count,
+			"%s: got %d returns, want %d",
+			test.name,
+			len(fn_type.returns),
+			test.return_count,
+		)
 
 		if test.nested_param && len(fn_type.params) > 0 {
 			_, nested := fn_type.params[0].variant.(syntax.Fn_Type)
@@ -2470,8 +2439,18 @@ test_function_literal_returns_function_type :: proc(t: ^testing.T) {
 	fn_type, is_fn := returns[0].variant.(syntax.Fn_Type)
 	testing.expect(t, is_fn, "return type should be Fn_Type")
 	if !is_fn do return
-	testing.expectf(t, len(fn_type.params) == 1, "got %d nested params, want 1", len(fn_type.params))
-	testing.expectf(t, len(fn_type.returns) == 1, "got %d nested returns, want 1", len(fn_type.returns))
+	testing.expectf(
+		t,
+		len(fn_type.params) == 1,
+		"got %d nested params, want 1",
+		len(fn_type.params),
+	)
+	testing.expectf(
+		t,
+		len(fn_type.returns) == 1,
+		"got %d nested returns, want 1",
+		len(fn_type.returns),
+	)
 }
 
 @(test)
@@ -2483,11 +2462,11 @@ test_function_type_trailing_commas :: proc(t: ^testing.T) {
 
 @(test)
 test_function_type_errors :: proc(t: ^testing.T) {
-	expect_parse_error(t, "callback: fn(",             .Incorrect_Type_Expr)
-	expect_parse_error(t, "callback: fn(number",       .Unexpected_Token)
-	expect_parse_error(t, "callback: fn() ->",         .Incorrect_Type_Expr)
+	expect_parse_error(t, "callback: fn(", .Incorrect_Type_Expr)
+	expect_parse_error(t, "callback: fn(number", .Unexpected_Token)
+	expect_parse_error(t, "callback: fn() ->", .Incorrect_Type_Expr)
 	expect_parse_error(t, "callback: fn() -> (number", .Unexpected_Token)
-	expect_parse_error(t, "foo :: fn() ->",            .Incorrect_Type_Expr)
+	expect_parse_error(t, "foo :: fn() ->", .Incorrect_Type_Expr)
 }
 
 // @(test) Don't know if we should disallow with because of interop
@@ -2501,23 +2480,30 @@ test_function_type_errors :: proc(t: ^testing.T) {
 
 @(test)
 test_declaration_and_return_list_errors :: proc(t: ^testing.T) {
-	expect_parse_error(t, "a, := 1",    .Unexpected_Token)
-	expect_parse_error(t, "a, b 1",     .Unexpected_Token)
-	expect_parse_error(t, "a, b :=",    .Unexpected_EOF)
+	expect_parse_error(t, "a, := 1", .Unexpected_Token)
+	expect_parse_error(t, "a, b 1", .Unexpected_Token)
+	expect_parse_error(t, "a, b :=", .Unexpected_EOF)
 	expect_parse_error(t, "a, b := 1,", .Unexpected_EOF)
-	expect_parse_error(t, "return 1,",  .Unexpected_EOF)
+	expect_parse_error(t, "return 1,", .Unexpected_EOF)
 }
 
 @(test)
 test_call_expression_arguments :: proc(t: ^testing.T) {
-	expect_parse_ok(t, "foo(1 + 2)")     // arithmetic argument
-	expect_parse_ok(t, "foo(bar(1))")    // nested call argument (statement position)
+	expect_parse_ok(t, "foo(1 + 2)") // arithmetic argument
+	expect_parse_ok(t, "foo(bar(1))") // nested call argument (statement position)
 	expect_parse_ok(t, "x := id(id(1))") // nested call argument (expression position)
 }
 
 // Parses a single decl/assignment statement and returns its RHS expression list.
 @(private = "file")
-parse_single_rhs :: proc(t: ^testing.T, source: string, alloc: mem.Allocator) -> ([dynamic]^syntax.Expr, bool) {
+parse_single_rhs :: proc(
+	t: ^testing.T,
+	source: string,
+	alloc: mem.Allocator,
+) -> (
+	[dynamic]syntax.Expr,
+	bool,
+) {
 	l: lexer.Lexer
 	lexer.init(&l, alloc)
 	tokens, lexer_err := lexer.scan(&l, source)
@@ -2568,19 +2554,36 @@ expect_span_text :: proc(
 	loc := #caller_location,
 ) {
 	if !syntax.span_is_valid(span, len(source)) {
-		testing.expectf(t, false, "%s: invalid span %v for source length %d", label, span, len(source), loc = loc)
+		testing.expectf(
+			t,
+			false,
+			"%s: invalid span %v for source length %d",
+			label,
+			span,
+			len(source),
+			loc = loc,
+		)
 		return
 	}
 
 	actual := source[span.start:span.end]
-	testing.expectf(t, actual == expected, "%s: span covers %q, want %q", label, actual, expected, loc = loc)
+	testing.expectf(
+		t,
+		actual == expected,
+		"%s: span covers %q, want %q",
+		label,
+		actual,
+		expected,
+		loc = loc,
+	)
 }
 
 // The source text an argument expression spans. Call arguments are now full
 // expressions, so their text comes from the expression's span rather than a token.
 @(private = "file")
-arg_text :: proc(source: string, arg: ^syntax.Expr) -> string {
-	return source[arg.span.start:arg.span.end]
+arg_text :: proc(source: string, arg: syntax.Expr) -> string {
+	span := syntax.span_of_expr(arg)
+	return source[span.start:span.end]
 }
 
 // Lexes and parses `source`, asserting it succeeds.
@@ -2602,12 +2605,24 @@ expect_parse_ok :: proc(t: ^testing.T, source: string, loc := #caller_location) 
 	p: Parser
 	init(&p, tokens[:], arena_alloc)
 	_, parser_err := parse(&p)
-	testing.expectf(t, parser_err == nil, "%q: unexpected parser error: %v", source, parser_err, loc = loc)
+	testing.expectf(
+		t,
+		parser_err == nil,
+		"%q: unexpected parser error: %v",
+		source,
+		parser_err,
+		loc = loc,
+	)
 }
 
 // Lexes and parses `source`, asserting it fails with exactly `kind`.
 @(private = "file")
-expect_parse_error :: proc(t: ^testing.T, source: string, kind: Parser_Error_Kind, loc := #caller_location) {
+expect_parse_error :: proc(
+	t: ^testing.T,
+	source: string,
+	kind: Parser_Error_Kind,
+	loc := #caller_location,
+) {
 	arena: mem.Dynamic_Arena
 	mem.dynamic_arena_init(&arena)
 	arena_alloc := mem.dynamic_arena_allocator(&arena)
@@ -2641,26 +2656,38 @@ expect_target_names :: proc(t: ^testing.T, name, source: string, names: []syntax
 
 // Asserts the RHS holds a single expression that is a function call.
 @(private = "file")
-expect_single_call :: proc(t: ^testing.T, name: string, rhs: [dynamic]^syntax.Expr) -> (syntax.Fn_Call_Expr, bool) {
+expect_single_call :: proc(
+	t: ^testing.T,
+	name: string,
+	rhs: [dynamic]syntax.Expr,
+) -> (
+	^syntax.Fn_Call_Expr,
+	bool,
+) {
 	if len(rhs) != 1 {
 		testing.expectf(t, false, "%s: expected single call RHS, got %d values", name, len(rhs))
-		return {}, false
+		return nil, false
 	}
-	call, ok := rhs[0].expr.(syntax.Fn_Call_Expr)
+	call, ok := rhs[0].(^syntax.Fn_Call_Expr)
 	if !ok {
 		testing.expectf(t, false, "%s: RHS value is not a Call_Expr", name)
-		return {}, false
+		return nil, false
 	}
 	return call, true
 }
 
 @(private = "file")
-make_token :: proc(kind: syntax.Token_Kind, start: int, end: int, kw: Maybe(syntax.Keyword) = nil) -> syntax.Token {
+make_token :: proc(
+	kind: syntax.Token_Kind,
+	start: int,
+	end: int,
+	kw: Maybe(syntax.Keyword) = nil,
+) -> syntax.Token {
 	return syntax.Token {
-		kind    = kind,
-		line    = 1,
-		span    = {start = start, end = end},
-		column  = start,
+		kind = kind,
+		line = 1,
+		span = {start = start, end = end},
+		column = start,
 		keyword = kw,
 	}
 }

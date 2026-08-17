@@ -29,22 +29,22 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 		strings.write_byte(b, ')')
 
 	case ^syntax.Fn_Decl_Stmt:
-	    strings.write_string(b, "(fn ")
-	    name := source[st.name.span.start:st.name.span.end]
-	    strings.write_string(b, name)
+		strings.write_string(b, "(fn ")
+		name := source[st.name.span.start:st.name.span.end]
+		strings.write_string(b, name)
 
-	    if receiver, ok := st.receiver.?; ok {
-	        strings.write_string(b, " (receiver ")
-	        strings.write_string(b, receiver.param_name)
-	        strings.write_byte(b, ' ')
-	        on := source[receiver.on.span.start:receiver.on.span.end]
-	        strings.write_string(b, on)
-	        strings.write_byte(b, ')')
-	    }
+		if receiver, ok := st.receiver.?; ok {
+			strings.write_string(b, " (receiver ")
+			strings.write_string(b, receiver.param_name)
+			strings.write_byte(b, ' ')
+			on := source[receiver.on.span.start:receiver.on.span.end]
+			strings.write_string(b, on)
+			strings.write_byte(b, ')')
+		}
 
-	    build_ast_from_fn_lit(b, source, st.lit)
+		build_ast_from_fn_lit(b, source, &st.lit)
 
-	    strings.write_byte(b, ')')
+		strings.write_byte(b, ')')
 
 	case ^syntax.Fn_Call_Stmt:
 		build_ast_from_fn_call(b, source, st)
@@ -88,7 +88,7 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 	}
 }
 
-build_ast_from_ident_rhs :: proc(b: ^strings.Builder, source: string, rhs: [dynamic]^syntax.Expr) {
+build_ast_from_ident_rhs :: proc(b: ^strings.Builder, source: string, rhs: [dynamic]syntax.Expr) {
 	for value in rhs {
 		strings.write_byte(b, ' ')
 		build_ast_from_expr(b, source, value)

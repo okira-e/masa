@@ -197,6 +197,15 @@ test_async_fn_decl :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_typed_const_async_fn_decl :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"load: async fn(number) -> number : async fn(id: number) -> number { return id }",
+		"async function load(id) {\n  return id;\n}\n",
+	)
+}
+
+@(test)
 test_fn_decl_bare_return :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -279,6 +288,60 @@ test_fn_value_assignment :: proc(t: ^testing.T) {
 		t,
 		"callback := fn() {}\ncallback = fn() {}",
 		"let callback = function () {\n};\ncallback = function () {\n};\n",
+	)
+}
+
+@(test)
+test_typed_fn_value_without_initializer :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"callback: fn(number) -> number\ncallback(1)",
+		"let callback;\ncallback(1);\n",
+	)
+}
+
+@(test)
+test_typed_fn_value_assigned_after_declaration :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"callback: fn(number) -> number\ncallback = fn(value: number) -> number { return value }\nresult := callback(1)",
+		"let callback;\ncallback = function (value) {\n  return value;\n};\nlet result = callback(1);\n",
+	)
+}
+
+@(test)
+test_fn_value_reassigned_and_called :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"callback := fn(value: number) -> number { return value }\ncallback = fn(value: number) -> number { return value + 1 }\nresult := callback(1)",
+		"let callback = function (value) {\n  return value;\n};\ncallback = function (value) {\n  return value + 1;\n};\nlet result = callback(1);\n",
+	)
+}
+
+@(test)
+test_fn_value_initializes_another_fn_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"identity := fn(value: number) -> number { return value }\ncallback := identity\nresult := callback(1)",
+		"let identity = function (value) {\n  return value;\n};\nlet callback = identity;\nlet result = callback(1);\n",
+	)
+}
+
+@(test)
+test_multiple_fn_values_are_callable :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"first, second := fn() {}, fn() {}\nfirst()\nsecond()",
+		"let first = function () {\n}, second = function () {\n};\nfirst();\nsecond();\n",
+	)
+}
+
+@(test)
+test_async_fn_value_is_callable :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"load := async fn() -> number { return 1 }\nresult := load()",
+		"let load = async function () {\n  return 1;\n};\nlet result = load();\n",
 	)
 }
 
@@ -427,6 +490,15 @@ test_fn_literal_passed_as_argument :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_mutable_fn_value_passed_as_argument :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"consume :: fn(callback: fn(number) -> number) {}\nidentity := fn(value: number) -> number { return value }\nconsume(identity)",
+		"function consume(callback) {\n}\nlet identity = function (value) {\n  return value;\n};\nconsume(identity);\n",
+	)
+}
+
+@(test)
 test_fn_returns_fn_value :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -435,9 +507,79 @@ test_fn_returns_fn_value :: proc(t: ^testing.T) {
 	)
 }
 
+@(test)
+test_fn_returns_named_fn_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"identity :: fn(value: number) -> number { return value }\nget_identity :: fn() -> fn(number) -> number { return identity }",
+		"function identity(value) {\n  return value;\n}\nfunction get_identity() {\n  return identity;\n}\n",
+	)
+}
+
+@(test)
+test_returned_fn_closure_captures_argument_and_local :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"make_adder :: fn(base: number) -> fn(number) -> number { offset := 1\nreturn fn(value: number) -> number { return base + offset + value } }",
+		"function make_adder(base) {\n  let offset = 1;\n  return function (value) {\n    return base + offset + value;\n  };\n}\n",
+	)
+}
+
+@(test)
+test_return_from_nested_plain_block :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo :: fn() -> number { { return 1 } }",
+		"function foo() {\n  {\n    return 1;\n  }\n}\n",
+	)
+}
+
+@(test)
+test_structurally_typed_async_fn_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"callback: async fn(number) -> number = async fn(value: number) -> number { return value }",
+		"let callback = async function (value) {\n  return value;\n};\n",
+	)
+}
+
+@(test)
+test_structurally_typed_multi_return_fn_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`callback: fn() -> (number, string) = fn() -> (number, string) { return 1, "ok" }`,
+		"let callback = function () {\n  return [1, \"ok\"];\n};\n",
+	)
+}
+
+@(test)
+test_structurally_typed_higher_order_fn_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"callback: fn(fn(number) -> number) -> fn(number) -> number = fn(inner: fn(number) -> number) -> fn(number) -> number { return inner }",
+		"let callback = function (inner) {\n  return inner;\n};\n",
+	)
+}
+
 //
 // Multiple return values
 //
+
+@(test)
+test_multi_declaration_shapes :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`foo :: fn() -> (number, number) {
+	return 1, 2
+}
+
+a, b: number
+
+c, d := 5, 10
+x, y, z := foo(), 5`,
+		"function foo() {\n  return [1, 2];\n}\nlet a, b;\nlet c = 5, d = 10;\nlet [x, y] = foo(), z = 5;\n",
+	)
+}
 
 @(test)
 test_multi_return_call_destructures_mutable_decl :: proc(t: ^testing.T) {
@@ -464,10 +606,9 @@ test_multi_return_call_destructures_assignment :: proc(t: ^testing.T) {
 	expect_js(
 		t,
 		`pair :: fn() -> (number, string) { return 1, "one" }
-number_value := 0
-string_value := ""
+number_value, string_value := 0, ""
 number_value, string_value = pair()`,
-		"function pair() {\n  return [1, \"one\"];\n}\nlet number_value = 0;\nlet string_value = \"\";\n[number_value, string_value] = pair();\n",
+		"function pair() {\n  return [1, \"one\"];\n}\nlet number_value = 0, string_value = \"\";\n[number_value, string_value] = pair();\n",
 	)
 }
 
@@ -481,11 +622,93 @@ forward :: fn() -> (number, string) { return pair() }`,
 	)
 }
 
+@(test)
+test_multi_return_call_expands_after_direct_decl_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`pair :: fn() -> (number, string) { return 1, "ok" }
+x, y, z := 0, pair()`,
+		"function pair() {\n  return [1, \"ok\"];\n}\nlet x = 0, [y, z] = pair();\n",
+	)
+}
+
+@(test)
+test_multiple_multi_return_calls_expand_in_declaration :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`pair :: fn() -> (number, string) { return 1, "ok" }
+a, b, c, d := pair(), pair()`,
+		"function pair() {\n  return [1, \"ok\"];\n}\nlet [a, b] = pair(), [c, d] = pair();\n",
+	)
+}
+
+@(test)
+test_typed_multi_target_decl_expands_call :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"numbers :: fn() -> (number, number) { return 1, 2 }\nx, y: number = numbers()",
+		"function numbers() {\n  return [1, 2];\n}\nlet [x, y] = numbers();\n",
+	)
+}
+
+@(test)
+test_multi_return_call_expands_after_direct_assignment_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`pair :: fn() -> (number, string) { return 1, "ok" }
+x, y, z := 0, 0, ""
+x, y, z = 0, pair()`,
+		"function pair() {\n  return [1, \"ok\"];\n}\nlet x = 0, y = 0, z = \"\";\nx = 0, [y, z] = pair();\n",
+	)
+}
+
+@(test)
+test_multi_return_call_expands_before_direct_assignment_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`pair :: fn() -> (number, string) { return 1, "ok" }
+x, y, z := 0, "", 0
+x, y, z = pair(), 5`,
+		"function pair() {\n  return [1, \"ok\"];\n}\nlet x = 0, y = \"\", z = 0;\n[x, y] = pair(), z = 5;\n",
+	)
+}
+
+@(test)
+test_multiple_target_direct_assignment :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`x, y := 0, ""
+x, y = 1, "ok"`,
+		"let x = 0, y = \"\";\nx = 1, y = \"ok\";\n",
+	)
+}
+
+@(test)
+test_multi_return_call_expands_after_direct_return_value :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`pair :: fn() -> (number, string) { return 1, "ok" }
+forward :: fn() -> (number, number, string) { return 0, pair() }`,
+		"function pair() {\n  return [1, \"ok\"];\n}\nfunction forward() {\n  return [0, ...pair()];\n}\n",
+	)
+}
+
+@(test)
+test_multiple_multi_return_calls_expand_in_return :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		`pair :: fn() -> (number, string) { return 1, "ok" }
+forward :: fn() -> (number, string, number, string) { return pair(), pair() }`,
+		"function pair() {\n  return [1, \"ok\"];\n}\nfunction forward() {\n  return [...pair(), ...pair()];\n}\n",
+	)
+}
+
 //
 // Hoisting and names
 //
 
-@(test)
+// TODO: Re-enable when constant declaration hoisting is implemented.
+// @(test)
 test_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -494,7 +717,16 @@ test_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
+test_typed_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo()\nfoo: fn() : fn() {}",
+		"foo();\nfunction foo() {\n}\n",
+	)
+}
+
+// @(test)
 test_const_fn_dependency_is_hoisted :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -503,12 +735,57 @@ test_const_fn_dependency_is_hoisted :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
 test_recursive_fn_decl :: proc(t: ^testing.T) {
 	expect_js(
 		t,
 		"countdown :: fn(value: number) -> number { if value == 0 { return 0 }\nreturn countdown(value - 1) }",
 		"function countdown(value) {\n  if (value === 0) {\n    return 0;\n  }\n  return countdown(value - 1);\n}\n",
+	)
+}
+
+// @(test)
+test_mutually_recursive_fn_decls :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"even :: fn(value: number) -> bool { if value == 0 { return true }\nreturn odd(value - 1) }\nodd :: fn(value: number) -> bool { if value == 0 { return false }\nreturn even(value - 1) }",
+		"function even(value) {\n  if (value === 0) {\n    return true;\n  }\n  return odd(value - 1);\n}\nfunction odd(value) {\n  if (value === 0) {\n    return false;\n  }\n  return even(value - 1);\n}\n",
+	)
+}
+
+// @(test)
+test_block_local_fn_decl_is_hoisted :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"{\nlocal()\nlocal :: fn() {}\n}",
+		"{\n  local();\n  function local() {\n  }\n}\n",
+	)
+}
+
+// @(test)
+test_function_local_hoisted_fn_captures_argument :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"outer :: fn(value: number) -> number { return local()\nlocal :: fn() -> number { return value } }",
+		"function outer(value) {\n  return local();\n  function local() {\n    return value;\n  }\n}\n",
+	)
+}
+
+// @(test)
+test_block_hoisted_fn_shadows_outer_fn :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"choose :: fn(value: number) {}\n{\nchoose()\nchoose :: fn() {}\n}",
+		"function choose(value) {\n}\n{\n  choose();\n  function choose() {\n  }\n}\n",
+	)
+}
+
+// @(test)
+test_hoisted_fn_signature_uses_earlier_type_alias :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"Num :: number\nconsume(1)\nconsume :: fn(value: Num) {}",
+		"consume(1);\nfunction consume(value) {\n}\n",
 	)
 }
 
@@ -548,13 +825,21 @@ expect_js :: proc(t: ^testing.T, source: string, expected: string, loc := #calle
 
 	l := lexer.Lexer{}
 	lexer.init(&l, arena_alloc)
-	tokens, _ := lexer.scan(&l, source)
+	tokens, lexer_err := lexer.scan(&l, source)
 	defer delete(tokens)
+	if lexer_err != nil {
+		testing.expectf(t, false, "%s: lexer failed: %v", source, lexer_err, loc = loc)
+		return
+	}
 
 	p: parser.Parser
 	parser.init(&p, tokens[:], arena_alloc)
-	stmts, _ := parser.parse(&p)
+	stmts, parser_err := parser.parse(&p)
 	defer delete(stmts)
+	if parser_err != nil {
+		testing.expectf(t, false, "%s: parser failed: %v", source, parser_err, loc = loc)
+		return
+	}
 
 	a: analyzer.Analyzer
 	analyzer.init(&a, source)

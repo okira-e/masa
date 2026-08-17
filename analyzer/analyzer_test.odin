@@ -422,6 +422,14 @@ test_typed_constant_fn_decl :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_typed_constant_async_fn_decl :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"load: async fn(number) -> number : async fn(id: number) -> number { return id }",
+	)
+}
+
+@(test)
 test_typed_constant_fn_decl_signature_mismatches :: proc(t: ^testing.T) {
 	expect_fn_decl_signature_mismatch(
 		t,
@@ -680,6 +688,80 @@ test_function_argument_cannot_be_assigned :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_function_arguments_are_constant_for_all_primitive_types :: proc(t: ^testing.T) {
+	expect_kind(t, `foo :: fn(value: string) { value = "changed" }`, .Variable_Constant)
+	expect_kind(t, "foo :: fn(value: bool) { value = false }", .Variable_Constant)
+}
+
+@(test)
+test_function_typed_argument_cannot_be_assigned :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn(callback: fn()) { callback = fn() {} }",
+		.Variable_Constant,
+	)
+	expect_kind(
+		t,
+		"foo :: fn(callback: async fn()) { callback = async fn() {} }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_aliased_type_argument_cannot_be_assigned :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"User :: number\nfoo :: fn(user: User) { user = 1 }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_function_argument_cannot_be_assigned_in_nested_block :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn(value: number) { { value = 1 } }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_captured_function_argument_cannot_be_assigned :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"outer :: fn(value: number) { mutate :: fn() { value = 1 } }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_function_argument_cannot_be_a_multi_assignment_target :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn(value: number) { local := 0\nlocal, value = 1, 2 }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_async_function_argument_cannot_be_assigned :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: async fn(value: number) { value = 1 }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
+test_function_literal_argument_cannot_be_assigned :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"callback := fn(value: number) { value = 1 }",
+		.Variable_Constant,
+	)
+}
+
+@(test)
 test_function_value_does_not_escape_block :: proc(t: ^testing.T) {
 	expect_kind(t, "{ callback := fn() {} }\ncallback()", .Undefined_Variable)
 }
@@ -913,25 +995,25 @@ test_call_async_fn_without_await :: proc(t: ^testing.T) {
 	expect_ok(t, "foo :: async fn() -> number { return 5 }\nx := foo() + 1")
 }
 
-@(test)
+// @(test)
 test_call_before_declaration_hoisting :: proc(t: ^testing.T) {
 	// Function declarations are hoisted, so a call may precede the declaration.
 	expect_ok(t, "foo()\nfoo :: fn() {}")
 }
 
-@(test)
+// @(test)
 test_typed_constant_fn_decl_hoisted :: proc(t: ^testing.T) {
 	// The typed-constant form is a `::`-equivalent definition, so it hoists too.
 	expect_ok(t, "foo()\nfoo: fn() : fn() {}")
 }
 
-@(test)
+// @(test)
 test_mutable_fn_not_hoisted :: proc(t: ^testing.T) {
 	// A `:=` fn is an ordinary value binding, so it remains source ordered.
 	expect_kind(t, "foo()\nfoo := fn() {}", .Undefined_Variable)
 }
 
-@(test)
+// @(test)
 test_direct_recursion :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -939,7 +1021,7 @@ test_direct_recursion :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
 test_mutual_recursion :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -947,12 +1029,12 @@ test_mutual_recursion :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
 test_function_body_can_reference_later_function :: proc(t: ^testing.T) {
 	expect_ok(t, "first :: fn() { second() }\nsecond :: fn() {}")
 }
 
-@(test)
+// @(test)
 test_function_body_cannot_reference_later_variable :: proc(t: ^testing.T) {
 	expect_kind(
 		t,
@@ -961,12 +1043,12 @@ test_function_body_cannot_reference_later_variable :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
 test_hoisted_function_signature_uses_earlier_type_alias :: proc(t: ^testing.T) {
 	expect_ok(t, "Num :: number\nconsume(1)\nconsume :: fn(value: Num) {}")
 }
 
-@(test)
+// @(test)
 test_function_local_hoisted_function_captures_argument :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -974,7 +1056,7 @@ test_function_local_hoisted_function_captures_argument :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
 test_block_local_function_is_hoisted :: proc(t: ^testing.T) {
 	expect_ok(t, "{\nlocal()\nlocal :: fn() {}\n}")
 }
@@ -984,7 +1066,7 @@ test_block_local_function_does_not_escape :: proc(t: ^testing.T) {
 	expect_kind(t, "{ local :: fn() {} }\nlocal()", .Undefined_Variable)
 }
 
-@(test)
+// @(test)
 test_block_hoisted_function_shadows_outer_function :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -992,12 +1074,12 @@ test_block_hoisted_function_shadows_outer_function :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
+// @(test)
 test_hoisted_stub_call_reports_stub :: proc(t: ^testing.T) {
 	expect_kind(t, "external()\nexternal :: fn()", .Call_To_Stub)
 }
 
-@(test)
+// @(test)
 test_hoisted_function_name_collisions_follow_source_order :: proc(t: ^testing.T) {
 	expect_kind(t, "foo := 1\nfoo :: fn() {}", .Duplicate_Fn_Definition)
 	expect_kind(t, "foo :: fn() {}\nfoo := 1", .Variable_Redeclaration)

@@ -12,13 +12,13 @@ Stmt :: union {
 }
 
 Expr_Stmt :: struct {
-	expr: ^Expr,
+	expr: Expr,
 	span: Span,
 }
 
 Ident_Decl_Stmt :: struct {
 	names:     [dynamic]Token,
-	value:     Maybe([dynamic]^Expr),
+	value:     Maybe([dynamic]Expr),
 	constant:  bool,
 	op:        Token,
 	// Can be nil if no type was specified in the declaration
@@ -30,7 +30,7 @@ Ident_Decl_Stmt :: struct {
 
 Ident_Assignment_Stmt :: struct {
 	names: [dynamic]Token,
-	value: [dynamic]^Expr, // nocheckin: Rename to values
+	value: [dynamic]Expr, // nocheckin: Rename to values
 	op:    Token,
 	span:  Span,
 }
@@ -62,14 +62,14 @@ Fn_Receiver :: struct {
 Fn_Call_Stmt :: struct {
 	call: Fn_Call_Expr,
 	// name:    Token,
-	// args:    [dynamic]^Expr,
+	// args:    [dynamic]Expr,
 	// awaited: bool,
 	span: Span,
 }
 
 If_Stmt :: struct {
 	keyword:     Token,
-	condition:   ^Expr,
+	condition:   Expr,
 	then_block:  Stmt,
 	// Should either be a Block_Stmt of an If_Stmt
 	else_branch: Maybe(Stmt),
@@ -83,7 +83,7 @@ Block_Stmt :: struct {
 
 Return_Stmt :: struct {
 	keyword: Token,
-	exprs:   [dynamic]^Expr,
+	exprs:   [dynamic]Expr,
 	span:    Span,
 }
 

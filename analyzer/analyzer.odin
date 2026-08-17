@@ -171,7 +171,7 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 			is_type_alias_decl := len(val) == len(stmt.names)
 			if is_type_alias_decl {
 				for value in val {
-					rhs, is_ident := value.expr.(syntax.Ident_Expr)
+					rhs, is_ident := value.(^syntax.Ident_Expr)
 					if !is_ident {
 						is_type_alias_decl = false
 						break
@@ -204,7 +204,7 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 				}
 
 				for name_tok, i in stmt.names {
-					rhs := val[i].expr.(syntax.Ident_Expr)
+					rhs := val[i].(^syntax.Ident_Expr)
 					lexeme := a.source[rhs.token.span.start:rhs.token.span.end]
 					sym, found := resolve_ident(a, lexeme)
 					assert(found)
@@ -413,7 +413,7 @@ check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(An
 	}
 
 	// We know the type is Fn_Type. We don't care.
-	fn_type, err := check_fn_expr(a, stmt.lit)
+	fn_type, err := check_fn_expr(a, &stmt.lit)
 	if err != nil do return err
 
 	sym := new_symbol(Fn_Symbol{name = name, type = fn_type, literal = stmt.lit})
@@ -424,7 +424,7 @@ check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(An
 	return nil
 }
 
-check_fn_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Literal_Expr) -> (Fn_Type, Maybe(Analyzer_Error)) {
+check_fn_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Literal_Expr) -> (Fn_Type, Maybe(Analyzer_Error)) {
 	//
 	// type check arguments
 	//
@@ -526,7 +526,7 @@ check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> May
 		if err != nil do return err
 		for t in types {
 			append(&values, t)
-			append(&spans, returned_expr.span)
+			append(&spans, syntax.span_of_expr(returned_expr))
 		}
 	}
 
@@ -575,7 +575,7 @@ check_fn_call :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Call_Stmt) -> Maybe(Analyze
 	}
 
 	// Return types are discarded in a call statement
-	_, err := check_fn_call_expr(a, stmt.call)
+	_, err := check_fn_call_expr(a, &stmt.call)
 	if err != nil do return err
 
 	return nil
@@ -642,17 +642,14 @@ Checked_Value :: struct {
 	span: syntax.Span,
 }
 
-check_expr_list :: proc(
-	a: ^Analyzer,
-	exprs: []^syntax.Expr,
-) -> ([dynamic]Checked_Value, Maybe(Analyzer_Error)) {
+check_expr_list :: proc(a: ^Analyzer, exprs: []syntax.Expr) -> ([dynamic]Checked_Value, Maybe(Analyzer_Error)) {
 	values := make([dynamic]Checked_Value, allocator = context.temp_allocator)
 	for expr in exprs {
 		types, err := check_expr(a, expr)
 		if err != nil do return values, err
 
 		for type in types {
-			append(&values, Checked_Value{type = type, span = expr.span})
+			append(&values, Checked_Value{type = type, span = syntax.span_of_expr(expr)})
 		}
 	}
 
@@ -664,11 +661,11 @@ check_if_stmt :: proc(a: ^Analyzer, stmt: ^syntax.If_Stmt) -> Maybe(Analyzer_Err
 	if err != nil do return err
 	cond_type_symbol, sure := cond_type.(^Symbol)
 	if !sure {
-		return analyzer_error(.Condition_Not_Bool, stmt.condition.span)
+		return analyzer_error(.Condition_Not_Bool, syntax.span_of_expr(stmt.condition))
 	}
 
 	if cond_type_symbol != a.t_bool {
-		return analyzer_error(.Condition_Not_Bool, stmt.condition.span)
+		return analyzer_error(.Condition_Not_Bool, syntax.span_of_expr(stmt.condition))
 	}
 
 	err = check_stmt(a, stmt.then_block)
@@ -721,9 +718,9 @@ check_block_stmt :: proc(
 // The full list of values an expression yields. Most produce exactly one; a
 // call can produce several (or none, for a void call). Positions that require a
 // single value should go through check_single instead.
-check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_Error)) {
-	switch expr in expr.expr {
-	case syntax.Literal_Expr:
+check_expr :: proc(a: ^Analyzer, expr: syntax.Expr) -> ([]Type, Maybe(Analyzer_Error)) {
+	switch expr in expr {
+	case ^syntax.Literal_Expr:
 		lit_kind, ok := expr.token.literal_kind.?
 		assert(ok)
 		switch lit_kind {
@@ -737,26 +734,26 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_
 			return one_value(nil), nil
 		}
 
-	case syntax.Fn_Literal_Expr:
+	case ^syntax.Fn_Literal_Expr:
 		t, err := check_fn_expr(a, expr)
 		if err != nil do return nil, err
 		return one_value(t), nil
 
-	case syntax.Unary_Expr:
+	case ^syntax.Unary_Expr:
 		t, err := check_unary(a, expr)
 		if err != nil do return nil, err
 		return one_value(t), nil
 
-	case syntax.Binary_Expr:
+	case ^syntax.Binary_Expr:
 		t, err := check_binary(a, expr)
 		if err != nil do return nil, err
 		return one_value(t), nil
 
-	case syntax.Grouping_Expr:
+	case ^syntax.Grouping_Expr:
 		// Transparent: a group forwards the value list of its inner expression.
 		return check_expr(a, expr.expr)
 
-	case syntax.Ident_Expr:
+	case ^syntax.Ident_Expr:
 		sym, err := resolve_symbol(a, expr.token)
 		if err != nil do return nil, err
 		// Check symbol type
@@ -776,12 +773,12 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_
 		}
 
 
-	case syntax.Logical_Expr:
+	case ^syntax.Logical_Expr:
 		t, err := check_logical(a, expr)
 		if err != nil do return nil, err
 		return one_value(t), nil
 
-	case syntax.Fn_Call_Expr:
+	case ^syntax.Fn_Call_Expr:
 		return check_fn_call_expr(a, expr)
 	}
 
@@ -791,7 +788,7 @@ check_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> ([]Type, Maybe(Analyzer_
 
 // The value list produced by a function call: the callee's resolved return
 // types (already computed at declaration time), or none for a void call.
-check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, Maybe(Analyzer_Error)) {
+check_fn_call_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Call_Expr) -> ([]Type, Maybe(Analyzer_Error)) {
 	name := a.source[expr.name.span.start:expr.name.span.end]
 	sym, found := resolve_ident(a, name)
 	if !found {
@@ -823,7 +820,7 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, 
 
 	// Check arguments match the declared parameters
 	if len(expr.args) != len(fn_type.args) {
-		data := Count_Error_Data{
+		data := Count_Error_Data {
 			expected = len(fn_type.args),
 			actual   = len(expr.args),
 		}
@@ -843,15 +840,18 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: syntax.Fn_Call_Expr) -> ([]Type, 
 		if !matches {
 			return nil, analyzer_error(
 				.Argument_Type_Mismatch,
-				passed_arg.span,
+				syntax.span_of_expr(passed_arg),
 				Indexed_Error_Data{index = i},
 			)
 		}
 	}
 
-
 	rets, has := fn_type.return_types.?
-	if !has do return {}, nil // void call: no values
+	if !has {
+		expr.return_count = 0
+		return {}, nil // void call: no values
+	}
+	expr.return_count = len(rets)
 
 	return rets[:], nil
 }
@@ -896,13 +896,13 @@ type_from_token :: proc(a: ^Analyzer, tok: syntax.Token) -> (Type, Maybe(Analyze
 	)
 }
 
-check_single_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> (Type, Maybe(Analyzer_Error)) {
+check_single_expr :: proc(a: ^Analyzer, expr: syntax.Expr) -> (Type, Maybe(Analyzer_Error)) {
 	types, err := check_expr(a, expr)
 	if err != nil do return nil, err
 	if len(types) != 1 {
 		return nil, analyzer_error(
 			.Multi_Value_In_Single_Context,
-			expr.span,
+			syntax.span_of_expr(expr),
 			Count_Error_Data{expected = 1, actual = len(types)},
 		)
 	}
@@ -911,7 +911,7 @@ check_single_expr :: proc(a: ^Analyzer, expr: ^syntax.Expr) -> (Type, Maybe(Anal
 }
 
 // Returns either a number symbol or a bool
-check_unary :: proc(a: ^Analyzer, expr: syntax.Unary_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
+check_unary :: proc(a: ^Analyzer, expr: ^syntax.Unary_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
 	operand_type, err := check_single_expr(a, expr.right)
 	if err != nil do return nil, err
 
@@ -919,12 +919,12 @@ check_unary :: proc(a: ^Analyzer, expr: syntax.Unary_Expr) -> (^Symbol, Maybe(An
 	if !ok {
 		return nil, analyzer_error(
 			.Operator_Type_Mismatch,
-			expr.right.span,
+			syntax.span_of_expr(expr.right),
 			Operator_Error_Data{reason = .Unsupported_Operand, operator_span = expr.op_span},
 		)
 	}
 
-	span := expr.right.span
+	span := syntax.span_of_expr(expr.right)
 	#partial switch expr.op {
 	case .Minus:
 		if operand != a.t_number {
@@ -953,7 +953,7 @@ check_unary :: proc(a: ^Analyzer, expr: syntax.Unary_Expr) -> (^Symbol, Maybe(An
 	unreachable()
 }
 
-check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
+check_binary :: proc(a: ^Analyzer, v: ^syntax.Binary_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
 	left_type, lerr := check_single_expr(a, v.left)
 	if lerr != nil do return nil, lerr
 
@@ -961,7 +961,7 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 	if !ok {
 		return nil, analyzer_error(
 			.Operator_Type_Mismatch,
-			v.left.span,
+			syntax.span_of_expr(v.left),
 			Operator_Error_Data{reason = .Left_Operand_Not_Value, operator_span = v.op_span},
 		)
 	}
@@ -973,12 +973,12 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 	if !sure {
 		return nil, analyzer_error(
 			.Operator_Type_Mismatch,
-			v.right.span,
+			syntax.span_of_expr(v.right),
 			Operator_Error_Data{reason = .Right_Operand_Not_Value, operator_span = v.op_span},
 		)
 	}
 
-	span := v.left.span
+	span := syntax.span_of_expr(v.left)
 	#partial switch v.op {
 	case .Plus, .Minus, .Star, .Slash:
 		if left != a.t_number || right != a.t_number {
@@ -1031,7 +1031,7 @@ check_binary :: proc(a: ^Analyzer, v: syntax.Binary_Expr) -> (^Symbol, Maybe(Ana
 }
 
 // Returns a bool symbol
-check_logical :: proc(a: ^Analyzer, expr: syntax.Logical_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
+check_logical :: proc(a: ^Analyzer, expr: ^syntax.Logical_Expr) -> (^Symbol, Maybe(Analyzer_Error)) {
 	left_type, lerr := check_single_expr(a, expr.left)
 	if lerr != nil do return nil, lerr
 
@@ -1039,7 +1039,7 @@ check_logical :: proc(a: ^Analyzer, expr: syntax.Logical_Expr) -> (^Symbol, Mayb
 	if !ok {
 		return nil, analyzer_error(
 			.Operator_Type_Mismatch,
-			expr.left.span,
+			syntax.span_of_expr(expr.left),
 			Operator_Error_Data {
 				reason        = .Logical_Left_Requires_Bool,
 				operator_span = expr.op_span,
@@ -1054,7 +1054,7 @@ check_logical :: proc(a: ^Analyzer, expr: syntax.Logical_Expr) -> (^Symbol, Mayb
 	if !sure {
 		return nil, analyzer_error(
 			.Operator_Type_Mismatch,
-			expr.right.span,
+			syntax.span_of_expr(expr.right),
 			Operator_Error_Data {
 				reason        = .Logical_Right_Requires_Bool,
 				operator_span = expr.op_span,
@@ -1065,7 +1065,7 @@ check_logical :: proc(a: ^Analyzer, expr: syntax.Logical_Expr) -> (^Symbol, Mayb
 	if left != a.t_bool || right != a.t_bool {
 		return nil, analyzer_error(
 			.Operator_Type_Mismatch,
-			expr.left.span,
+			syntax.span_of_expr(expr.left),
 			Operator_Error_Data{
 				reason        = .Logical_Requires_Bools,
 				operator_span = expr.op_span,
@@ -1216,9 +1216,9 @@ type_eq :: proc(a: Type, b: Type) -> (bool, Maybe(Analyzer_Error)) {
 // Decides if the statement can fall through in execution or not
 always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 
-	does_expr_terminate :: proc(expr: ^syntax.Expr) -> bool {
-		#partial switch e in expr.expr {
-		case syntax.Fn_Call_Expr:
+	does_expr_terminate :: proc(expr: syntax.Expr) -> bool {
+		#partial switch e in expr {
+		case ^syntax.Fn_Call_Expr:
 		// @TODO: Functions like panic might have a #terminates that would be handled here
 		}
 
@@ -1266,16 +1266,13 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 		block, has_block := fn_sym.literal.block.?
 		if !has_block || len(block.stmts) == 0 do return false
 
-		return always_terminates(
-			a,
-			block.stmts[len(block.stmts) - 1],
-		)
+		return always_terminates(a, block.stmts[len(block.stmts) - 1])
 
 	case ^syntax.If_Stmt:
 		return(
 			s.else_branch != nil &&
 			always_terminates(a, s.then_block) &&
-			always_terminates(a, s.else_branch.?) \
+			always_terminates(a, s.else_branch.?)
 		)
 
 	case ^syntax.Block_Stmt:
@@ -1465,7 +1462,9 @@ analyzer_error_with_data :: proc(
 	span: syntax.Span,
 	value: $T,
 ) -> Analyzer_Error {
-	data := Analyzer_Error_Data{value = value}
+	data := Analyzer_Error_Data {
+		value = value,
+	}
 	return Analyzer_Error{kind = kind, span = span, data = data}
 }
 
