@@ -2,9 +2,13 @@ package syntax
 
 Keyword :: enum u8 {
 	If,
+	Fn,
+	Async,
+	Await,
 	Else,
 	And,
 	Or,
+	Return,
 }
 
 Keyword_Entry :: struct {
@@ -14,9 +18,13 @@ Keyword_Entry :: struct {
 
 keywords := []Keyword_Entry {
 	{"if",     .If},
+	{"fn",     .Fn},
+	{"async",  .Async},
+	{"await",  .Await},
 	{"else",   .Else},
 	{"and",    .And},
 	{"or",     .Or},
+	{"return", .Return},
 }
 
 keyword_from_string :: proc(s: string) -> Maybe(Keyword) {

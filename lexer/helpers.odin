@@ -15,22 +15,22 @@ print_token :: proc(source: string, token: ^syntax.Token, i := 0) {
 
 	#partial switch token.kind {
 	case .Comment:
-		lexeme := source[token.lexeme_start:token.lexeme_end]
+		lexeme := source[token.span.start:token.span.end]
 		out = fmt.aprintf("Comment(%s)", lexeme)
 
 	case .Keyword:
-		lexeme := source[token.lexeme_start:token.lexeme_end]
+		lexeme := source[token.span.start:token.span.end]
 		out = fmt.aprintf("Keyword(%s)", lexeme)
 
 	case .Ident:
-		lexeme := source[token.lexeme_start:token.lexeme_end]
+		lexeme := source[token.span.start:token.span.end]
 		out = fmt.aprintf("Identifier(%s)", lexeme)
 
 	case:
 		{
 			if token.literal_kind != nil {
 				kind := token.literal_kind
-				lex := source[token.lexeme_start:token.lexeme_end]
+				lex := source[token.span.start:token.span.end]
 
 				switch kind {
 				case .Bool:
@@ -50,8 +50,8 @@ print_token :: proc(source: string, token: ^syntax.Token, i := 0) {
 		"%4d  %-12s  [%d:%d]  line=%d col=%d  %s\n",
 		i,
 		token.kind,
-		token.lexeme_start,
-		token.lexeme_end,
+		token.span.start,
+		token.span.end,
 		token.line,
 		token.column,
 		out,
