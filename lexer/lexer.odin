@@ -15,10 +15,6 @@ Lexer :: struct {
 }
 
 init :: proc(l: ^Lexer, allocator := context.allocator) {
-	l.current = 0
-	l.line = 0
-	l.column = 0
-	l.last_lexeme_start = 0
 	l.allocator = allocator
 }
 
@@ -238,9 +234,11 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 				   (!ok || (ok && (!unicode.is_digit(rune(next)) && next != '.'))) {
 					new_token := make_token(l, l.current, .Dot, nil, nil)
 					append(&tokens, new_token)
+
 				} else if ok && unicode.is_letter(rune(next)) {
 					err = make_error(l, .Ident_Starts_With_Number)
 					break
+
 				} else {
 					dot_found := false // Make sure only one dot is scanned for each number
 					if b == '.' {

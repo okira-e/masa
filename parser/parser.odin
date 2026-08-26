@@ -763,11 +763,21 @@ parse_fn_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) 
 	close := current(p)
 	advance(p) // ')'
 
+	awaited := false
+	end := close
+	next, ok := next(p)
+	if ok && current(p).kind == .Dot && next.keyword == .Await {
+		advance(p) // '.'
+		end = current(p)
+		advance(p) // 'await'
+		awaited = true
+	}
+
 	return syntax.Fn_Call_Expr {
 		name    = name,
 		args    = args,
-		awaited = false,
-		span    = syntax.span_join(name.span, close.span),
+		awaited = awaited,
+		span    = syntax.span_join(name.span, end.span),
 	}, nil
 }
 

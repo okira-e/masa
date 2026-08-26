@@ -1000,6 +1000,11 @@ test_call_async_fn_without_await :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_await_non_async_function :: proc(t: ^testing.T) {
+	expect_kind(t, "foo :: fn() {}\nfoo().await", .Await_Non_Async_Function)
+}
+
+@(test)
 test_call_before_declaration_hoisting :: proc(t: ^testing.T) {
 	// Function declarations are hoisted, so a call may precede the declaration.
 	expect_ok(t, "foo()\nfoo :: fn() {}")

@@ -687,7 +687,9 @@ check_fn_body :: proc(
 	expr:    ^syntax.Fn_Literal_Expr,
 	fn_type: Fn_Type,
 ) -> Maybe(Analyzer_Error) {
-	if expr.block == nil do return nil
+	if expr.block == nil {
+		return nil
+	}
 
 	captured_symbols := make([dynamic]Block_Capture, len(expr.args))
 	defer delete(captured_symbols)
@@ -1069,6 +1071,10 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Call_Expr) -> ([]Type,
 				Indexed_Error_Data{index = i},
 			)
 		}
+	}
+
+	if expr.awaited && !fn_type.async {
+		return nil, analyzer_error(.Await_Non_Async_Function, expr.name.span)
 	}
 
 	rets, has := fn_type.return_types.?
@@ -1787,6 +1793,7 @@ Analyzer_Error_Kind :: enum u8 {
 	Condition_Not_Bool,
 	Not_Callable,
 	Call_To_Stub,
+	Await_Non_Async_Function,
 	Argument_Count_Mismatch,
 	Argument_Type_Mismatch,
 	Missing_Return,
@@ -2029,6 +2036,13 @@ error_message :: proc(
 	case .Call_To_Stub:
 		return fmt.aprintf(
 			"function '%s' has no body and cannot be called",
+			name,
+			allocator = allocator,
+		)
+
+	case .Await_Non_Async_Function:
+		return fmt.aprintf(
+			"non-async function '%s' cannot be awaited",
 			name,
 			allocator = allocator,
 		)

@@ -38,6 +38,7 @@ Token_Kind :: enum u8 {
 	Comment,
 	Slash,
 	EOF,
+	Await,
 }
 
 Literal_Kind :: enum u8 {
