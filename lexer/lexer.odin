@@ -381,7 +381,7 @@ Lexer_Error :: struct {
 	lexeme_end:   int,
 }
 
-Lexer_Error_Kind :: enum {
+Lexer_Error_Kind :: enum u8 {
 	Unterminated_String_Literal,
 	Ident_Starts_With_Number,
 	Number_Literal_Dots_Count,

@@ -4,10 +4,11 @@ import "../syntax"
 import "core:fmt"
 import "core:strings"
 
-// nocheckin: Check the context.allocator allocations
 Analyzer :: struct {
 	source: string,
 	env:    ^Scope,
+
+	next_emit_id: int,
 
 	t_number: ^Symbol,
 	t_string: ^Symbol,
@@ -24,13 +25,30 @@ Fn_Context :: struct {
 }
 
 Scope :: struct {
-	symbols: map[string]^Symbol,
-	parent:  Maybe(^Scope),
+	symbols:             map[string]^Symbol,
+	hoisted_definitions: map[string]^Hoisted_Definition,
+	parent:              Maybe(^Scope),
 
 	// References pointers to defined symbols for destroying later. If the symbol is an alias to
 	// a pre-defined symbol, it doesn't go here, only the `symbols` map so that the aliased reference
 	// isn't deleted with the alias symbol.
-	owned_symbols: [dynamic]^Symbol,
+	owned_symbols:     [dynamic]^Symbol,
+
+	owned_definitions: [dynamic]^Hoisted_Definition,
+}
+
+Hoisted_Definition_State :: enum u8 {
+	Declared,
+	Resolving,
+	// Used for functions, their signature and names are defined but not their bodies
+	Header_Resolved,
+	Resolved,
+}
+
+Hoisted_Definition :: struct {
+	stmt:  syntax.Stmt,
+	scope: ^Scope,
+	state: Hoisted_Definition_State,
 }
 
 Symbol :: union {
@@ -44,6 +62,8 @@ Var_Symbol :: struct {
 	decl_token: syntax.Token,
 	type:       Type,
 	is_arg:     bool,
+	// When a value can be compile-time point to another compile-time value like `foo :: bar`
+	constant_value: Maybe(syntax.Expr),
 }
 
 Type_Symbol :: struct {
@@ -52,9 +72,10 @@ Type_Symbol :: struct {
 }
 
 Fn_Symbol :: struct {
-	name:    string,
-	type:    Fn_Type,
-	literal: syntax.Fn_Literal_Expr,
+	name:        string,
+	type:        Fn_Type,
+	literal:     syntax.Fn_Literal_Expr,
+	declaration: ^syntax.Fn_Decl_Stmt,
 }
 
 Type :: union {
@@ -71,9 +92,10 @@ Fn_Type :: struct {
 
 
 init :: proc(a: ^Analyzer, source: string) {
-	a.source = source
+	a.source       = source
+	a.next_emit_id = 0
 
-	universe := make_scope(nil)
+	universe  := make_scope(nil)
 	a.t_number = declare_type(universe, "number")
 	a.t_string = declare_type(universe, "string")
 	a.t_bool   = declare_type(universe, "bool")
@@ -97,9 +119,84 @@ destroy :: proc(a: ^Analyzer) {
 }
 
 analyze :: proc(a: ^Analyzer, stmts: []syntax.Stmt) -> Maybe(Analyzer_Error) {
+	err := collect_declarations(a, stmts)
+	if err != nil do return err
+
 	for stmt in stmts {
-		err := check_stmt(a, stmt)
+		err = check_stmt(a, stmt)
 		if err != nil do return err
+	}
+
+	return nil
+}
+
+collect_declarations :: proc(a: ^Analyzer, stmts: []syntax.Stmt) -> Maybe(Analyzer_Error) {
+	seen := make(map[string]bool, len(stmts))
+	defer delete(seen)
+
+	for name in a.env.symbols {
+		seen[name] = true
+	}
+
+	for stmt in stmts {
+		#partial switch s in stmt {
+		case ^syntax.Fn_Decl_Stmt:
+			name := a.source[s.name.span.start:s.name.span.end]
+			if seen[name] {
+				return analyzer_error(
+					.Duplicate_Fn_Definition,
+					s.name.span,
+					Name_Error_Data{role = .Function},
+				)
+			}
+			seen[name] = true
+
+		case ^syntax.Ident_Decl_Stmt:
+			for name_token in s.names {
+				name := a.source[name_token.span.start:name_token.span.end]
+				if seen[name] {
+					return analyzer_error(
+						.Variable_Redeclaration,
+						name_token.span,
+						Name_Error_Data{role = .Variable},
+					)
+				}
+				seen[name] = true
+			}
+		}
+	}
+
+	for stmt in stmts {
+		is_hoisted := false
+		#partial switch s in stmt {
+		case ^syntax.Fn_Decl_Stmt:
+			is_hoisted = true
+
+		case ^syntax.Ident_Decl_Stmt:
+			is_hoisted = s.constant
+		}
+
+		if !is_hoisted do continue
+
+		definition := new(Hoisted_Definition)
+		definition^ = Hoisted_Definition {
+			stmt  = stmt,
+			scope = a.env,
+			state = .Declared,
+		}
+		append(&a.env.owned_definitions, definition)
+
+		#partial switch s in stmt {
+		case ^syntax.Fn_Decl_Stmt:
+			name := a.source[s.name.span.start:s.name.span.end]
+			a.env.hoisted_definitions[name] = definition
+
+		case ^syntax.Ident_Decl_Stmt:
+			for name_token in s.names {
+				name := a.source[name_token.span.start:name_token.span.end]
+				a.env.hoisted_definitions[name] = definition
+			}
+		}
 	}
 
 	return nil
@@ -114,6 +211,9 @@ current_fn_context :: proc(a: ^Analyzer) -> Fn_Context {
 	return a.fn_contexts[len(a.fn_contexts) - 1]
 }
 
+// All `::` declarations are collected before statements are checked. Values and
+// type aliases resolve lazily on first use; function headers resolve separately
+// from bodies so forward calls and recursion work without runtime value hoisting.
 check_stmt :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> Maybe(Analyzer_Error) {
 	// This switch as to handle every statement because any statement can appear
 	// anywhere
@@ -124,6 +224,10 @@ check_stmt :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> Maybe(Analyzer_Error) {
 		return err
 
 	case ^syntax.Ident_Decl_Stmt:
+		if stmt.constant {
+			return resolve_hoisted_stmt(a, stmt)
+		}
+
 		return check_ident_decl(a, stmt)
 
 	case ^syntax.Fn_Decl_Stmt:
@@ -178,7 +282,8 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 					}
 
 					lexeme := a.source[rhs.token.span.start:rhs.token.span.end]
-					sym, found := resolve_ident(a, lexeme)
+					sym, found, err := resolve_ident(a, lexeme, rhs.token.span)
+					if err != nil do return err
 					if !found {
 						is_type_alias_decl = false
 						break
@@ -206,15 +311,24 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 				for name_tok, i in stmt.names {
 					rhs := val[i].(^syntax.Ident_Expr)
 					lexeme := a.source[rhs.token.span.start:rhs.token.span.end]
-					sym, found := resolve_ident(a, lexeme)
+					sym, found, err := resolve_ident(a, lexeme, rhs.token.span)
+					if err != nil do return err
 					assert(found)
 
 					name := a.source[name_tok.span.start:name_tok.span.end]
 					a.env.symbols[name] = sym
 				}
 
-				stmt.decl_kind = .Type_Alias
 				return nil
+			}
+		}
+	}
+
+	if stmt.constant {
+		if values, has_value := stmt.value.?; has_value {
+			for value in values {
+				err := check_constant_expr(a, value)
+				if err != nil do return err
 			}
 		}
 	}
@@ -246,7 +360,9 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 
 		if declared_type, ok := declared_type.?; ok {
 			for value, i in checked_values {
-				if value.type == nil do continue
+				if value.type == nil {
+					continue
+				}
 
 				match, match_err := type_eq(declared_type, value.type)
 				if match_err != nil do return match_err
@@ -294,11 +410,21 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 			}
 		}
 
-		sym := new_symbol(
-			Var_Symbol{constant = stmt.constant, decl_token = name_token, type = final_type},
-		)
+		constant_value: Maybe(syntax.Expr) = nil
+		if stmt.constant {
+			if values, has_value := stmt.value.?; has_value {
+				constant_value = values[i]
+			}
+		}
 
-		stmt.decl_kind = .Value // As opposed to a type alias
+		sym := new_symbol(
+			Var_Symbol {
+				constant       = stmt.constant,
+				decl_token     = name_token,
+				type           = final_type,
+				constant_value = constant_value,
+			},
+		)
 
 		append(&a.env.owned_symbols, sym)
 		a.env.symbols[name] = sym
@@ -307,8 +433,80 @@ check_ident_decl :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(A
 	return nil
 }
 
-check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(Analyzer_Error) {
+// A `::` value must be fully known at compile time. This is deliberately
+// separate from type checking: an expression can have a valid runtime type
+// while still being illegal in a constant definition.
+check_constant_expr :: proc(a: ^Analyzer, expr: syntax.Expr) -> Maybe(Analyzer_Error) {
+	switch expr in expr {
+	case ^syntax.Literal_Expr:
+		return nil
 
+	case ^syntax.Unary_Expr:
+		return check_constant_expr(a, expr.right)
+
+	case ^syntax.Binary_Expr:
+		err := check_constant_expr(a, expr.left)
+		if err != nil do return err
+		return check_constant_expr(a, expr.right)
+
+	case ^syntax.Grouping_Expr:
+		return check_constant_expr(a, expr.expr)
+
+	case ^syntax.Ident_Expr:
+		sym, err := resolve_symbol(a, expr.token)
+		if err != nil do return err
+
+		switch value in sym {
+		case Var_Symbol:
+			if value.is_arg {
+				return analyzer_error(
+					.Non_Constant_Expression,
+					expr.span,
+					Non_Constant_Expression_Error_Data{reason = .Function_Argument},
+				)
+			}
+			if !value.constant {
+				return analyzer_error(
+					.Non_Constant_Expression,
+					expr.span,
+					Non_Constant_Expression_Error_Data{reason = .Mutable_Variable},
+				)
+			}
+			return nil
+
+		case Fn_Symbol:
+			if value.declaration.emit_id == nil {
+				value.declaration.emit_id = a.next_emit_id
+				a.next_emit_id += 1
+			}
+			return nil
+
+		case Type_Symbol:
+			return nil
+		}
+
+	case ^syntax.Logical_Expr:
+		err := check_constant_expr(a, expr.left)
+		if err != nil do return err
+		return check_constant_expr(a, expr.right)
+
+	case ^syntax.Fn_Call_Expr:
+		return analyzer_error(
+			.Non_Constant_Expression,
+			expr.span,
+			Non_Constant_Expression_Error_Data{reason = .Function_Call},
+		)
+
+	case ^syntax.Fn_Literal_Expr:
+		// The parser normally promotes `name :: fn` to Fn_Decl_Stmt. Keep
+		// procedure values compile-time-valid if one reaches this path.
+		return nil
+	}
+
+	unreachable()
+}
+
+check_fn_declared_type :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(Analyzer_Error) {
 	// Type check
 	if declared_type, ok := stmt.type.?; ok {
 		declared_fn_type, is_fn_type := declared_type.variant.(syntax.Fn_Type)
@@ -403,38 +601,48 @@ check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(An
 		}
 	}
 
-	name := a.source[stmt.name.span.start:stmt.name.span.end]
-	if _, exists := a.env.symbols[name]; exists {
-		return analyzer_error(
-			.Duplicate_Fn_Definition,
-			stmt.name.span,
-			Name_Error_Data{role = .Function},
-		)
-	}
+	return nil
+}
 
-	// We know the type is Fn_Type. We don't care.
-	fn_type, err := check_fn_expr(a, &stmt.lit)
+check_fn_decl_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Decl_Stmt) -> Maybe(Analyzer_Error) {
+	fn_name := a.source[stmt.name.span.start:stmt.name.span.end]
+	definition, found := a.env.hoisted_definitions[fn_name]
+	assert(found)
+
+	err := resolve_hoisted_definition(a, definition, stmt.name.span)
 	if err != nil do return err
+	if definition.state == .Resolved do return nil
 
-	sym := new_symbol(Fn_Symbol{name = name, type = fn_type, literal = stmt.lit})
+	name := a.source[stmt.name.span.start:stmt.name.span.end]
+	sym, exists := definition.scope.symbols[name]
+	assert(exists)
+	fn_sym, is_fn := sym^.(Fn_Symbol)
+	assert(is_fn)
 
-	append(&a.env.owned_symbols, sym)
-	a.env.symbols[name] = sym
-
+	err = check_fn_body(a, &stmt.lit, fn_sym.type)
+	if err != nil do return err
+	definition.state = .Resolved
 	return nil
 }
 
 check_fn_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Literal_Expr) -> (Fn_Type, Maybe(Analyzer_Error)) {
+	fn_type, err := check_fn_signature(a, expr)
+	if err != nil do return {}, err
+
+	err = check_fn_body(a, expr, fn_type)
+	if err != nil do return {}, err
+
+	return fn_type, nil
+}
+
+check_fn_signature :: proc(a: ^Analyzer, expr: ^syntax.Fn_Literal_Expr) -> (Fn_Type, Maybe(Analyzer_Error)) {
 	//
 	// type check arguments
 	//
 	seen := make(map[string]bool, len(expr.args))
 	defer delete(seen)
-	args_types := make([dynamic]Type, len(expr.args), allocator = context.temp_allocator)
 
-	// Args as symbols that will be passed down to check_block_stmt when we call it.
-	captured_symbols := make([dynamic]Block_Capture, len(expr.args), allocator = context.temp_allocator)
-	defer delete(captured_symbols)
+	args_types := make([dynamic]Type, len(expr.args), allocator = context.temp_allocator)
 
 	for arg, i in expr.args {
 		arg_type, err := resolve_type(a, arg.type)
@@ -449,30 +657,6 @@ check_fn_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Literal_Expr) -> (Fn_Type, 
 		seen[arg_name] = true
 		args_types[i]  = arg_type
 	}
-
-	// Create symbols out of the arguments and add them to the captured_symbols only if
-	// if the block exists and this is not a stub declaration. We don't want to allocate
-	// data here that we do not use or free.
-	if expr.block != nil {
-		for arg, i in expr.args {
-			arg_name := a.source[arg.name.span.start:arg.name.span.end]
-			sym := new_symbol(
-				Var_Symbol {
-					constant   = true,
-					decl_token = arg.name,
-					type       = args_types[i],
-					is_arg     = true,
-				},
-			)
-
-			captured_symbols[i] = Block_Capture {
-				name    = arg_name,
-				sym     = sym,
-				mutable = false,
-			}
-		}
-	}
-
 
 	//
 	// type check returns (in the signature)
@@ -491,30 +675,58 @@ check_fn_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Literal_Expr) -> (Fn_Type, 
 		return_types = resolved
 	}
 
-	declared_returns := return_types != nil ? return_types.?[:] : []Type{}
+	return Fn_Type {
+		return_types = return_types,
+		args         = args_types,
+		async        = expr.async,
+	}, nil
+}
+
+check_fn_body :: proc(
+	a:       ^Analyzer,
+	expr:    ^syntax.Fn_Literal_Expr,
+	fn_type: Fn_Type,
+) -> Maybe(Analyzer_Error) {
+	if expr.block == nil do return nil
+
+	captured_symbols := make([dynamic]Block_Capture, len(expr.args))
+	defer delete(captured_symbols)
+
+	for arg, i in expr.args {
+		arg_name := a.source[arg.name.span.start:arg.name.span.end]
+		sym := new_symbol(
+			Var_Symbol {
+				constant   = true,
+				decl_token = arg.name,
+				type       = fn_type.args[i],
+				is_arg     = true,
+			},
+		)
+
+		captured_symbols[i] = Block_Capture {
+			name    = arg_name,
+			sym     = sym,
+			mutable = false,
+		}
+	}
+
+	declared_returns := fn_type.return_types != nil ? fn_type.return_types.?[:] : []Type{}
 	append(&a.fn_contexts, Fn_Context {
 		return_types = declared_returns,
 		async        = expr.async,
 	})
 	defer pop(&a.fn_contexts)
 
-	if block, ok := expr.block.?; ok {
-		err := check_block_stmt(a, block, true, declared_returns, captured_symbols[:])
-		if err != nil do return {}, err
+	block := expr.block.?
+	err := check_block_stmt(a, block, true, declared_returns, captured_symbols[:])
+	if err != nil do return err
+
+	if fn_type.return_types != nil && !always_terminates(a, block) {
+		return analyzer_error(.Missing_Return, expr.span)
 	}
 
-	// Check if the function returns
-	if block, ok := expr.block.?; ok && return_types != nil && !always_terminates(a, block) {
-		return {}, analyzer_error(.Missing_Return, expr.span)
-	}
-
-	// nocheckin: Checks usage of await inside an async/non-async function
-
-	return Fn_Type {
-		return_types = return_types,
-		args         = args_types,
-		async        = expr.async,
-	}, nil
+	// TODO: Checks usage of await inside an async/non-async function
+	return nil
 }
 
 check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> Maybe(Analyzer_Error) {
@@ -553,7 +765,8 @@ check_return_stmt :: proc(a: ^Analyzer, return_stmt: ^syntax.Return_Stmt) -> May
 
 check_fn_call :: proc(a: ^Analyzer, stmt: ^syntax.Fn_Call_Stmt) -> Maybe(Analyzer_Error) {
 	name := a.source[stmt.call.name.span.start:stmt.call.name.span.end]
-	sym, found := resolve_ident(a, name)
+	sym, found, resolve_err := resolve_ident(a, name, stmt.call.name.span)
+	if resolve_err != nil do return resolve_err
 	if !found {
 		return analyzer_error(
 			.Undefined_Variable,
@@ -586,7 +799,7 @@ check_ident_assignment :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Assignment_Stmt
 		return nil
 	}
 
-	values, err := check_expr_list(a, stmt.value[:])
+	values, err := check_expr_list(a, stmt.values[:])
 	if err != nil do return err
 
 	if len(values) != len(stmt.names) {
@@ -707,8 +920,11 @@ check_block_stmt :: proc(
 		append(&a.env.owned_symbols, sym.sym)
 	}
 
+	err := collect_declarations(a, stmt.stmts)
+	if err != nil do return err
+
 	for stmt in stmt.stmts {
-		err := check_stmt(a, stmt)
+		err = check_stmt(a, stmt)
 		if err != nil do return err
 	}
 
@@ -724,14 +940,10 @@ check_expr :: proc(a: ^Analyzer, expr: syntax.Expr) -> ([]Type, Maybe(Analyzer_E
 		lit_kind, ok := expr.token.literal_kind.?
 		assert(ok)
 		switch lit_kind {
-		case .Number:
-			return one_value(a.t_number), nil
-		case .String:
-			return one_value(a.t_string), nil
-		case .Bool:
-			return one_value(a.t_bool), nil
-		case .Nil:
-			return one_value(nil), nil
+		case .Number: return one_value(a.t_number), nil
+		case .String: return one_value(a.t_string), nil
+		case .Bool:   return one_value(a.t_bool), nil
+		case .Nil:    return one_value(nil), nil
 		}
 
 	case ^syntax.Fn_Literal_Expr:
@@ -759,9 +971,13 @@ check_expr :: proc(a: ^Analyzer, expr: syntax.Expr) -> ([]Type, Maybe(Analyzer_E
 		// Check symbol type
 		switch s in sym {
 		case Var_Symbol:
+			if value, is_constant := s.constant_value.?; is_constant {
+				expr.constant_value = value
+			}
 			return one_value(s.type), nil
 
 		case Fn_Symbol:
+			expr.resolved_fn = s.declaration
 			return one_value(s.type), nil
 
 		case Type_Symbol:
@@ -790,7 +1006,8 @@ check_expr :: proc(a: ^Analyzer, expr: syntax.Expr) -> ([]Type, Maybe(Analyzer_E
 // types (already computed at declaration time), or none for a void call.
 check_fn_call_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Call_Expr) -> ([]Type, Maybe(Analyzer_Error)) {
 	name := a.source[expr.name.span.start:expr.name.span.end]
-	sym, found := resolve_ident(a, name)
+	sym, found, resolve_err := resolve_ident(a, name, expr.name.span)
+	if resolve_err != nil do return nil, resolve_err
 	if !found {
 		return nil, analyzer_error(
 			.Undefined_Variable,
@@ -805,12 +1022,20 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Call_Expr) -> ([]Type,
 		if s.literal.block == nil {
 			return nil, analyzer_error(.Call_To_Stub, expr.name.span)
 		}
+		expr.resolved_fn = s.declaration
 		fn_type = s.type
 
 	case Var_Symbol:
 		type, callable := s.type.(Fn_Type)
 		if !callable {
 			return nil, analyzer_error(.Not_Callable, expr.name.span)
+		}
+		if constant_callee, is_constant := s.constant_value.?; is_constant {
+			expr.constant_callee = constant_callee
+			if declaration, resolves_to_function := resolved_function_from_constant(constant_callee);
+			   resolves_to_function && declaration.lit.block == nil {
+				return nil, analyzer_error(.Call_To_Stub, expr.name.span)
+			}
 		}
 		fn_type = type
 
@@ -856,20 +1081,36 @@ check_fn_call_expr :: proc(a: ^Analyzer, expr: ^syntax.Fn_Call_Expr) -> ([]Type,
 	return rets[:], nil
 }
 
+resolved_function_from_constant :: proc(expr: syntax.Expr) -> (^syntax.Fn_Decl_Stmt, bool) {
+	switch value in expr {
+	case ^syntax.Ident_Expr:
+		if declaration, is_function := value.resolved_fn.?; is_function {
+			return declaration, true
+		}
+		if constant_value, is_constant := value.constant_value.?; is_constant {
+			return resolved_function_from_constant(constant_value)
+		}
+
+	case ^syntax.Grouping_Expr:
+		return resolved_function_from_constant(value.expr)
+
+	case ^syntax.Literal_Expr, ^syntax.Unary_Expr, ^syntax.Binary_Expr,
+	     ^syntax.Logical_Expr, ^syntax.Fn_Call_Expr, ^syntax.Fn_Literal_Expr:
+	}
+
+	return nil, false
+}
+
 type_from_token :: proc(a: ^Analyzer, tok: syntax.Token) -> (Type, Maybe(Analyzer_Error)) {
 	#partial switch tok.kind {
 	case .Literal:
 		lit_kind, ok := tok.literal_kind.?
 		assert(ok)
 		switch lit_kind {
-		case .Number:
-			return a.t_number, nil
-		case .String:
-			return a.t_string, nil
-		case .Bool:
-			return a.t_bool, nil
-		case .Nil:
-			return nil, nil
+		case .Number: return a.t_number, nil
+		case .String: return a.t_string, nil
+		case .Bool:   return a.t_bool, nil
+		case .Nil:    return nil, nil
 		}
 
 	case .Ident:
@@ -1076,16 +1317,93 @@ check_logical :: proc(a: ^Analyzer, expr: ^syntax.Logical_Expr) -> (^Symbol, May
 	return a.t_bool, nil
 }
 
-// Walk from the current scope up to universe.
-resolve_ident :: proc(a: ^Analyzer, name: string) -> (^Symbol, bool) {
+definition_for_ident :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> (^Hoisted_Definition, bool) {
+	assert(len(stmt.names) > 0)
+
+	name_token := stmt.names[0]
+	name := a.source[name_token.span.start:name_token.span.end]
+
+	definition, found := a.env.hoisted_definitions[name]
+
+	return definition, found
+}
+
+resolve_hoisted_stmt :: proc(a: ^Analyzer, stmt: ^syntax.Ident_Decl_Stmt) -> Maybe(Analyzer_Error) {
+	definition, found := definition_for_ident(a, stmt)
+	assert(found)
+
+	return resolve_hoisted_definition(a, definition, stmt.span)
+}
+
+resolve_hoisted_definition :: proc(a: ^Analyzer, definition: ^Hoisted_Definition, use_span: syntax.Span) -> Maybe(Analyzer_Error) {
+	switch definition.state {
+	case .Resolved, .Header_Resolved:
+		return nil
+
+	case .Resolving:
+		return analyzer_error(.Cyclic_Constant_Definition, use_span)
+
+	case .Declared:
+	}
+
+	definition.state = .Resolving
+	previous_env := a.env
+	a.env = definition.scope
+	defer a.env = previous_env
+
+	#partial switch stmt in definition.stmt {
+	case ^syntax.Fn_Decl_Stmt:
+		err := check_fn_declared_type(a, stmt)
+		if err != nil do return err
+
+		fn_type, signature_err := check_fn_signature(a, &stmt.lit)
+		if signature_err != nil do return signature_err
+
+		name := a.source[stmt.name.span.start:stmt.name.span.end]
+		sym := new_symbol(
+			Fn_Symbol {
+				name        = name,
+				type        = fn_type,
+				literal     = stmt.lit,
+				declaration = stmt,
+			},
+		)
+		append(&definition.scope.owned_symbols, sym)
+		definition.scope.symbols[name] = sym
+		definition.state = .Header_Resolved
+
+	case ^syntax.Ident_Decl_Stmt:
+		err := check_ident_decl(a, stmt)
+		if err != nil do return err
+
+		definition.state = .Resolved
+	}
+
+	return nil
+}
+
+// Walk from the current scope up to universe, resolving hoisted definitions on demand.
+resolve_ident :: proc(a: ^Analyzer, name: string, use_span: syntax.Span) -> (^Symbol, bool, Maybe(Analyzer_Error)) {
 	current: Maybe(^Scope) = a.env
 	for current != nil {
 		scope := current.?
-		if sym, ok := scope.symbols[name]; ok do return sym, true
+		definition, has_definition := scope.hoisted_definitions[name]
+
+		if sym, ok := scope.symbols[name]; ok {
+			return sym, true, nil
+		}
+
+		if has_definition {
+			err := resolve_hoisted_definition(a, definition, use_span)
+			if err != nil do return nil, true, err
+			sym, resolved := scope.symbols[name]
+			assert(resolved)
+			return sym, true, nil
+		}
 		current = scope.parent
 	}
 
-	return nil, false
+	return nil, false, nil
 }
 
 // Resolve a syntactic type reference into a resolved analyzer `Type`. Recurses
@@ -1126,7 +1444,8 @@ resolve_type :: proc(a: ^Analyzer, type: syntax.Type) -> (Type, Maybe(Analyzer_E
 // Resolve a name expected to refer to a type (declaration type position).
 resolve_token :: proc(a: ^Analyzer, name_tok: syntax.Token) -> (^Symbol, Maybe(Analyzer_Error)) {
 	name := a.source[name_tok.span.start:name_tok.span.end]
-	sym, found := resolve_ident(a, name)
+	sym, found, resolve_err := resolve_ident(a, name, name_tok.span)
+	if resolve_err != nil do return nil, resolve_err
 	if !found {
 		return nil, analyzer_error(.Undefined_Type, name_tok.span, Name_Error_Data{role = .Type})
 	}
@@ -1145,7 +1464,8 @@ resolve_token :: proc(a: ^Analyzer, name_tok: syntax.Token) -> (^Symbol, Maybe(A
 // Resolve a name expected to refer to a variable (expression/assignment position).
 resolve_symbol :: proc(a: ^Analyzer, name_tok: syntax.Token) -> (^Symbol, Maybe(Analyzer_Error)) {
 	name := a.source[name_tok.span.start:name_tok.span.end]
-	sym, found := resolve_ident(a, name)
+	sym, found, resolve_err := resolve_ident(a, name, name_tok.span)
+	if resolve_err != nil do return nil, resolve_err
 
 	if !found {
 		return nil, analyzer_error(
@@ -1246,7 +1566,7 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 
 	case ^syntax.Ident_Assignment_Stmt:
 		terminates := false
-		for value in s.value {
+		for value in s.values {
 			if does_expr_terminate(value) {
 				terminates = true
 				break
@@ -1257,7 +1577,7 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 
 	case ^syntax.Fn_Call_Stmt:
 		name := a.source[s.call.name.span.start:s.call.name.span.end]
-		sym, found := resolve_ident(a, name)
+		sym, found, _ := resolve_ident(a, name, s.call.name.span)
 		if !found do return false
 
 		fn_sym, ok := sym^.(Fn_Symbol)
@@ -1278,7 +1598,20 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 	case ^syntax.Block_Stmt:
 		// @Performance: We Require a return statement to always be present
 		// in the last line of any function to improve compiler performance.
-		return len(s.stmts) > 0 && always_terminates(a, s.stmts[len(s.stmts) - 1])
+		for offset in 0 ..< len(s.stmts) {
+			last := s.stmts[len(s.stmts) - 1 - offset]
+			is_hoisted := false
+			#partial switch declaration in last {
+			case ^syntax.Fn_Decl_Stmt:
+				is_hoisted = true
+			case ^syntax.Ident_Decl_Stmt:
+				is_hoisted = declaration.constant
+			}
+			if is_hoisted do continue
+
+			return always_terminates(a, last)
+		}
+		return false
 
 	case ^syntax.Return_Stmt:
 		return true
@@ -1298,9 +1631,11 @@ new_symbol :: proc(value: Symbol) -> ^Symbol {
 make_scope :: proc(parent: Maybe(^Scope)) -> ^Scope {
 	s := new(Scope)
 	s^ = {
-		symbols       = make(map[string]^Symbol),
-		owned_symbols = make([dynamic]^Symbol),
-		parent        = parent,
+		symbols           = make(map[string]^Symbol),
+		hoisted_definitions       = make(map[string]^Hoisted_Definition),
+		owned_symbols     = make([dynamic]^Symbol),
+		owned_definitions = make([dynamic]^Hoisted_Definition),
+		parent            = parent,
 	}
 
 	return s
@@ -1310,9 +1645,14 @@ free_scope :: proc(s: ^Scope) {
 	for sym in s.owned_symbols {
 		free(sym)
 	}
+	for definition in s.owned_definitions {
+		free(definition)
+	}
 
 	delete(s.owned_symbols)
+	delete(s.owned_definitions)
 	delete(s.symbols)
+	delete(s.hoisted_definitions)
 	free(s)
 }
 
@@ -1349,6 +1689,7 @@ Analyzer_Error_Data_Value :: union {
 	Operator_Error_Data,
 	Illegal_Context_Error_Data,
 	Fn_Declaration_Signature_Error_Data,
+	Non_Constant_Expression_Error_Data,
 }
 
 Name_Error_Data :: struct {
@@ -1416,9 +1757,21 @@ Fn_Declaration_Signature_Mismatch_Reason :: enum u8 {
 	Return_Type,
 }
 
+Non_Constant_Expression_Error_Data :: struct {
+	reason: Non_Constant_Expression_Reason,
+}
+
+Non_Constant_Expression_Reason :: enum u8 {
+	Function_Call,
+	Mutable_Variable,
+	Function_Argument,
+}
+
 Analyzer_Error_Kind :: enum u8 {
 	Undefined_Variable,
 	Undefined_Type,
+	Cyclic_Constant_Definition,
+	Non_Constant_Expression,
 	Value_Used_As_Type,
 	Variable_Redeclaration,
 	Duplicate_Fn_Definition,
@@ -1491,6 +1844,38 @@ error_message :: proc(
 			return fmt.aprintf("undefined type '%s'", name, allocator = allocator)
 		}
 		return fmt.aprintf("missing type", allocator = allocator)
+
+	case .Cyclic_Constant_Definition:
+		return fmt.aprintf(
+			"constant definition cycle involving '%s'",
+			name,
+			allocator = allocator,
+		)
+
+	case .Non_Constant_Expression:
+		data, ok := err.data.?
+		assert(ok)
+		constant_data, is_constant := data.value.(Non_Constant_Expression_Error_Data)
+		assert(is_constant)
+		switch constant_data.reason {
+		case .Function_Call:
+			return fmt.aprintf(
+				"function calls cannot be used in compile-time constant definitions",
+				allocator = allocator,
+			)
+		case .Mutable_Variable:
+			return fmt.aprintf(
+				"mutable variable '%s' cannot be used in a compile-time constant definition",
+				name,
+				allocator = allocator,
+			)
+		case .Function_Argument:
+			return fmt.aprintf(
+				"function argument '%s' cannot be used in a compile-time constant definition",
+				name,
+				allocator = allocator,
+			)
+		}
 
 	case .Value_Used_As_Type:
 		return fmt.aprintf("value '%s' cannot be used as a type", name, allocator = allocator)
@@ -1760,6 +2145,12 @@ error_message :: proc(
 @(private)
 error_hint :: proc(err: Analyzer_Error) -> Maybe(string) {
 	#partial switch err.kind {
+	case .Cyclic_Constant_Definition:
+		return "break the cycle between these constant definitions"
+
+	case .Non_Constant_Expression:
+		return "use ':=' for a value that must be initialized at runtime"
+
 	case .Variable_Constant:
 		return "declare with ':=' instead of '::' if it needs to change"
 

@@ -21,7 +21,7 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 
 		value, ok := st.value.?
 		if ok {
-			build_ast_from_ident_rhs(b, source, value)
+			build_ast_from_ident_rhs(b, source, value[:])
 		} else {
 			strings.write_string(b, " ---")
 		}
@@ -56,7 +56,7 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 			strings.write_byte(b, ' ')
 			strings.write_string(b, source[name.span.start:name.span.end])
 		}
-		build_ast_from_ident_rhs(b, source, st.value)
+		build_ast_from_ident_rhs(b, source, st.values[:])
 		strings.write_byte(b, ')')
 
 	case ^syntax.If_Stmt:
@@ -88,7 +88,7 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 	}
 }
 
-build_ast_from_ident_rhs :: proc(b: ^strings.Builder, source: string, rhs: [dynamic]syntax.Expr) {
+build_ast_from_ident_rhs :: proc(b: ^strings.Builder, source: string, rhs: []syntax.Expr) {
 	for value in rhs {
 		strings.write_byte(b, ' ')
 		build_ast_from_expr(b, source, value)

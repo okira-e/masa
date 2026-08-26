@@ -21,19 +21,22 @@ destroy :: proc(t: ^Transpiler) {
 
 transpile :: proc(t: ^Transpiler, stmts: []syntax.Stmt) -> string {
 	emit_headers(t)
-
-	for stmt in stmts {
-		written_anything := emit_stmt(t, stmt)
-		if written_anything {
-			strings.write_byte(&t.output_builder, '\n')
-		}
-	}
+	emit_scope_stmts(t, stmts)
 
 	return strings.to_string(t.output_builder)
 }
 
 emit_headers :: proc(t: ^Transpiler) {
 	strings.write_string(&t.output_builder, USE_STRICT_PREFIX)
+}
+
+emit_scope_stmts :: proc(t: ^Transpiler, stmts: []syntax.Stmt) {
+	for stmt in stmts {
+		written_anything := emit_stmt(t, stmt)
+		if written_anything {
+			strings.write_byte(&t.output_builder, '\n')
+		}
+	}
 }
 
 // Returns if it actually wrote something or not
@@ -45,7 +48,7 @@ emit_stmt :: proc(t: ^Transpiler, stmt: syntax.Stmt, do_indent := true) -> bool 
 		strings.write_byte(&t.output_builder, ';')
 
 	case ^syntax.Ident_Decl_Stmt:
-		if s.decl_kind == .Type_Alias {
+		if s.constant {
 			return false
 		}
 
@@ -106,7 +109,7 @@ emit_ident_declaration :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Decl_Stmt) {
 		has_values = true
 	}
 
-	strings.write_string(&t.output_builder, stmt.constant ? "const " : "let ")
+	strings.write_string(&t.output_builder, "let ")
 
 	Pair :: struct {
 		names: [dynamic]syntax.Token,
@@ -177,10 +180,15 @@ emit_fn_declaration :: proc(t: ^Transpiler, stmt: ^syntax.Fn_Decl_Stmt) {
 		return
 	}
 
-	emit_fn_literal(t, &stmt.lit, stmt.name)
+	emit_fn_literal(t, &stmt.lit, stmt.name, stmt)
 }
 
-emit_fn_literal :: proc(t: ^Transpiler, fn: ^syntax.Fn_Literal_Expr, name: Maybe(syntax.Token)) {
+emit_fn_literal :: proc(
+	t: ^Transpiler,
+	fn: ^syntax.Fn_Literal_Expr,
+	name: Maybe(syntax.Token),
+	declaration: Maybe(^syntax.Fn_Decl_Stmt) = nil,
+) {
 	if fn.async {
 		strings.write_string(&t.output_builder, "async function ")
 	} else {
@@ -189,7 +197,7 @@ emit_fn_literal :: proc(t: ^Transpiler, fn: ^syntax.Fn_Literal_Expr, name: Maybe
 
 	// name
 	if name, ok := name.?; ok {
-		emit_ident_token(t, name)
+		emit_function_name(t, name, declaration)
 	}
 
 	// args
@@ -215,10 +223,7 @@ emit_fn_call :: proc(t: ^Transpiler, stmt: ^syntax.Fn_Call_Stmt) {
 		strings.write_string(&t.output_builder, "await ")
 	}
 
-	if is_js_reserved(t.source[stmt.call.name.span.start:stmt.call.name.span.end]) {
-		strings.write_byte(&t.output_builder, '$')
-	}
-	write_lexeme(t, stmt.call.name)
+	emit_call_callee(t, &stmt.call)
 	strings.write_string(&t.output_builder, "(")
 
 	for arg, i in stmt.call.args {
@@ -247,7 +252,7 @@ emit_ident_assignment :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Assignment_Stm
 	}
 
 	name_i := 0
-	for value in stmt.value {
+	for value in stmt.values {
 		skip := 1
 		if call, is_call := value.(^syntax.Fn_Call_Expr); is_call {
 			if count, ok := call.return_count.?; ok {
@@ -287,12 +292,7 @@ emit_ident_assignment :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Assignment_Stm
 emit_block :: proc(t: ^Transpiler, stmt: ^syntax.Block_Stmt) {
 	strings.write_string(&t.output_builder, "{\n")
 	t.indent += 1
-	for inner in stmt.stmts {
-		written_anything := emit_stmt(t, inner)
-		if written_anything {
-			strings.write_byte(&t.output_builder, '\n')
-		}
-	}
+	emit_scope_stmts(t, stmt.stmts)
 	t.indent -= 1
 	write_indent(t)
 	strings.write_byte(&t.output_builder, '}')
@@ -350,7 +350,13 @@ emit_expr :: proc(t: ^Transpiler, expr: syntax.Expr) {
 		strings.write_byte(&t.output_builder, ')')
 
 	case ^syntax.Ident_Expr:
-		emit_ident_token(t, expr.token)
+		if value, is_constant := expr.constant_value.?; is_constant {
+			emit_inlined_constant(t, value)
+		} else if declaration, is_function := expr.resolved_fn.?; is_function {
+			emit_function_name(t, expr.token, declaration)
+		} else {
+			emit_ident_token(t, expr.token)
+		}
 
 	case ^syntax.Fn_Literal_Expr:
 		emit_fn_literal(t, expr, nil)
@@ -361,7 +367,7 @@ emit_expr :: proc(t: ^Transpiler, expr: syntax.Expr) {
 		emit_expr(t, expr.right)
 
 	case ^syntax.Fn_Call_Expr:
-		emit_ident_token(t, expr.name)
+		emit_call_callee(t, expr)
 		strings.write_byte(&t.output_builder, '(')
 		for arg, i in expr.args {
 			if i != 0 do strings.write_string(&t.output_builder, ", ")
@@ -369,6 +375,62 @@ emit_expr :: proc(t: ^Transpiler, expr: syntax.Expr) {
 		}
 		strings.write_byte(&t.output_builder, ')')
 	}
+}
+
+emit_inlined_constant :: proc(t: ^Transpiler, expr: syntax.Expr) {
+	_, is_literal  := expr.(^syntax.Literal_Expr)
+	_, is_ident    := expr.(^syntax.Ident_Expr)
+	_, is_grouping := expr.(^syntax.Grouping_Expr)
+	if is_literal || is_ident || is_grouping {
+		emit_expr(t, expr)
+		return
+	}
+
+	strings.write_byte(&t.output_builder, '(')
+	emit_expr(t, expr)
+	strings.write_byte(&t.output_builder, ')')
+}
+
+emit_call_callee :: proc(t: ^Transpiler, call: ^syntax.Fn_Call_Expr) {
+	if callee, is_constant := call.constant_callee.?; is_constant {
+		_, is_ident := callee.(^syntax.Ident_Expr)
+		_, is_grouping := callee.(^syntax.Grouping_Expr)
+		if is_ident || is_grouping {
+			emit_expr(t, callee)
+			return
+		}
+
+		strings.write_byte(&t.output_builder, '(')
+		emit_expr(t, callee)
+		strings.write_byte(&t.output_builder, ')')
+		return
+	}
+
+	if declaration, is_function := call.resolved_fn.?; is_function {
+		emit_function_name(t, call.name, declaration)
+		return
+	}
+
+	emit_ident_token(t, call.name)
+}
+
+emit_function_name :: proc(
+	t: ^Transpiler,
+	token: syntax.Token,
+	declaration: Maybe(^syntax.Fn_Decl_Stmt),
+) {
+	if function, has_function := declaration.?; has_function {
+		if id, has_id := function.emit_id.?; has_id {
+			strings.write_string(&t.output_builder, "$masa_fn_")
+			strings.write_int(&t.output_builder, id)
+			strings.write_byte(&t.output_builder, '_')
+			write_lexeme(t, function.name)
+
+			return
+		}
+	}
+
+	emit_ident_token(t, token)
 }
 
 // Emits an identifier. Mangles the name with a `$` prefix if it would collide with a

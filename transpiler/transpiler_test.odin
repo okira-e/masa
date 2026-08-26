@@ -17,8 +17,8 @@ test_let_decl :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_const_decl :: proc(t: ^testing.T) {
-	expect_js(t, "x :: 5", "const x = 5;\n")
+test_unused_const_decl_is_erased :: proc(t: ^testing.T) {
+	expect_js(t, "x :: 5", "")
 }
 
 @(test)
@@ -592,16 +592,6 @@ number_value, string_value := pair()`,
 }
 
 @(test)
-test_multi_return_call_destructures_const_decl :: proc(t: ^testing.T) {
-	expect_js(
-		t,
-		`pair :: fn() -> (number, string) { return 1, "one" }
-number_value, string_value :: pair()`,
-		"function pair() {\n  return [1, \"one\"];\n}\nconst [number_value, string_value] = pair();\n",
-	)
-}
-
-@(test)
 test_multi_return_call_destructures_assignment :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -707,8 +697,7 @@ forward :: fn() -> (number, string, number, string) { return pair(), pair() }`,
 // Hoisting and names
 //
 
-// TODO: Re-enable when constant declaration hoisting is implemented.
-// @(test)
+@(test)
 test_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -717,7 +706,7 @@ test_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_typed_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -726,7 +715,7 @@ test_typed_const_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_const_fn_dependency_is_hoisted :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -735,7 +724,7 @@ test_const_fn_dependency_is_hoisted :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_recursive_fn_decl :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -744,7 +733,7 @@ test_recursive_fn_decl :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_mutually_recursive_fn_decls :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -753,7 +742,7 @@ test_mutually_recursive_fn_decls :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_block_local_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -762,7 +751,7 @@ test_block_local_fn_decl_is_hoisted :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_function_local_hoisted_fn_captures_argument :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -771,7 +760,7 @@ test_function_local_hoisted_fn_captures_argument :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_block_hoisted_fn_shadows_outer_fn :: proc(t: ^testing.T) {
 	expect_js(
 		t,
@@ -780,12 +769,183 @@ test_block_hoisted_fn_shadows_outer_fn :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_hoisted_fn_signature_uses_earlier_type_alias :: proc(t: ^testing.T) {
 	expect_js(
 		t,
 		"Num :: number\nconsume(1)\nconsume :: fn(value: Num) {}",
 		"consume(1);\nfunction consume(value) {\n}\n",
+	)
+}
+
+@(test)
+test_const_value_is_inlined_before_definition :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"value := answer\nanswer :: 42",
+		"let value = 42;\n",
+	)
+}
+
+@(test)
+test_const_value_dependencies_are_recursively_inlined :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"first :: second + 1\nsecond :: 41\nvalue := first",
+		"let value = (41 + 1);\n",
+	)
+}
+
+@(test)
+test_block_const_value_is_inlined :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"{\nvalue := answer\nanswer :: 42\n}",
+		"{\n  let value = 42;\n}\n",
+	)
+}
+
+@(test)
+test_inlined_constant_preserves_expression_precedence :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"base :: 1 + 2\nvalue := base * 3",
+		"let value = (1 + 2) * 3;\n",
+	)
+}
+
+@(test)
+test_constant_is_inlined_at_each_use :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"answer :: 40 + 2\nfirst := answer\nsecond := answer",
+		"let first = (40 + 2);\nlet second = (40 + 2);\n",
+	)
+}
+
+@(test)
+test_inlined_constant_keeps_definition_scope :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"outer :: 1\n{\ninner :: outer + 1\n{\nouter :: 10\nresult := inner\n}\n}",
+		"{\n  {\n    let result = (1 + 1);\n  }\n}\n",
+	)
+}
+
+@(test)
+test_block_constant_shadows_from_scope_start :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"answer :: 1\n{\nresult := answer\nanswer :: 2\n}",
+		"{\n  let result = 2;\n}\n",
+	)
+}
+
+@(test)
+test_procedure_alias_is_erased_and_substituted :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"operation :: fn() -> number { return 1 }\ncallback :: operation\nresult := callback()\ncopy := callback\ncopy()",
+		"function $masa_fn_0_operation() {\n  return 1;\n}\nlet result = $masa_fn_0_operation();\nlet copy = $masa_fn_0_operation;\ncopy();\n",
+	)
+}
+
+@(test)
+test_procedure_alias_is_hygienic_under_runtime_shadow :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"operation :: fn() -> number { return 1 }\ncallback :: operation\n{\noperation := fn() -> number { return 2 }\nresult := callback()\n}",
+		"function $masa_fn_0_operation() {\n  return 1;\n}\n{\n  let operation = function () {\n    return 2;\n  };\n  let result = $masa_fn_0_operation();\n}\n",
+	)
+}
+
+@(test)
+test_forward_procedure_alias_call_statement_is_substituted :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"callback()\ncallback :: operation\noperation :: fn() {}",
+		"$masa_fn_0_operation();\nfunction $masa_fn_0_operation() {\n}\n",
+	)
+}
+
+@(test)
+test_aliased_recursive_procedure_uses_hygienic_name :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"countdown :: fn(value: number) -> number { if value == 0 { return 0 }\nreturn countdown(value - 1) }\nrun :: countdown\nresult := run(1)",
+		"function $masa_fn_0_countdown(value) {\n  if (value === 0) {\n    return 0;\n  }\n  return $masa_fn_0_countdown(value - 1);\n}\nlet result = $masa_fn_0_countdown(1);\n",
+	)
+}
+
+@(test)
+test_multi_hop_procedure_alias_emits_original_function :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo :: fn(num: number) -> number { return num }\nbar :: foo\nzezo :: bar\nzezo(5)",
+		"function $masa_fn_0_foo(num) {\n  return num;\n}\n$masa_fn_0_foo(5);\n",
+	)
+}
+
+@(test)
+test_multiple_aliases_reuse_one_function_name :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo :: fn() {}\nfirst :: foo\nsecond :: foo\nfirst()\nsecond()\nfoo()",
+		"function $masa_fn_0_foo() {\n}\n$masa_fn_0_foo();\n$masa_fn_0_foo();\n$masa_fn_0_foo();\n",
+	)
+}
+
+@(test)
+test_different_aliased_functions_receive_distinct_names :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"first :: fn() {}\nsecond :: fn() {}\nfirst_alias :: first\nsecond_alias :: second\nfirst_alias()\nsecond_alias()",
+		"function $masa_fn_0_first() {\n}\nfunction $masa_fn_1_second() {\n}\n$masa_fn_0_first();\n$masa_fn_1_second();\n",
+	)
+}
+
+@(test)
+test_forward_multi_hop_procedure_alias_is_substituted :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"result := zezo(5)\nzezo :: bar\nbar :: foo\nfoo :: fn(num: number) -> number { return num }",
+		"let result = $masa_fn_0_foo(5);\nfunction $masa_fn_0_foo(num) {\n  return num;\n}\n",
+	)
+}
+
+@(test)
+test_typed_procedure_alias_is_erased_and_substituted :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo :: fn(num: number) -> number { return num }\nbar: fn(number) -> number : foo\nresult := bar(5)",
+		"function $masa_fn_0_foo(num) {\n  return num;\n}\nlet result = $masa_fn_0_foo(5);\n",
+	)
+}
+
+@(test)
+test_reserved_function_name_uses_alias_hygiene_name :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"class :: fn(default: number) -> number { return default }\nalias :: class\nresult := alias(1)",
+		"function $masa_fn_0_class($default) {\n  return $default;\n}\nlet result = $masa_fn_0_class(1);\n",
+	)
+}
+
+@(test)
+test_later_alias_renames_earlier_resolved_function_reference :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo :: fn() {}\ncopy := foo\nalias :: foo",
+		"function $masa_fn_0_foo() {\n}\nlet copy = $masa_fn_0_foo;\n",
+	)
+}
+
+@(test)
+test_function_can_recurse_through_forward_alias :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"foo :: fn() { alias() }\nalias :: foo",
+		"function $masa_fn_0_foo() {\n  $masa_fn_0_foo();\n}\n",
 	)
 }
 

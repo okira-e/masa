@@ -857,7 +857,11 @@ test_multiple_targets_flatten_mixed_rhs :: proc(t: ^testing.T) {
 
 @(test)
 test_multiple_constant_targets_call :: proc(t: ^testing.T) {
-	expect_ok(t, "foo :: fn() -> (number, string) { return 1, \"hi\" }\nx, y :: foo()")
+	expect_non_constant(
+		t,
+		"foo :: fn() -> (number, string) { return 1, \"hi\" }\nx, y :: foo()",
+		.Function_Call,
+	)
 }
 
 @(test)
@@ -995,25 +999,25 @@ test_call_async_fn_without_await :: proc(t: ^testing.T) {
 	expect_ok(t, "foo :: async fn() -> number { return 5 }\nx := foo() + 1")
 }
 
-// @(test)
+@(test)
 test_call_before_declaration_hoisting :: proc(t: ^testing.T) {
 	// Function declarations are hoisted, so a call may precede the declaration.
 	expect_ok(t, "foo()\nfoo :: fn() {}")
 }
 
-// @(test)
+@(test)
 test_typed_constant_fn_decl_hoisted :: proc(t: ^testing.T) {
 	// The typed-constant form is a `::`-equivalent definition, so it hoists too.
 	expect_ok(t, "foo()\nfoo: fn() : fn() {}")
 }
 
-// @(test)
+@(test)
 test_mutable_fn_not_hoisted :: proc(t: ^testing.T) {
 	// A `:=` fn is an ordinary value binding, so it remains source ordered.
 	expect_kind(t, "foo()\nfoo := fn() {}", .Undefined_Variable)
 }
 
-// @(test)
+@(test)
 test_direct_recursion :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -1021,7 +1025,7 @@ test_direct_recursion :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_mutual_recursion :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -1029,12 +1033,12 @@ test_mutual_recursion :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_function_body_can_reference_later_function :: proc(t: ^testing.T) {
 	expect_ok(t, "first :: fn() { second() }\nsecond :: fn() {}")
 }
 
-// @(test)
+@(test)
 test_function_body_cannot_reference_later_variable :: proc(t: ^testing.T) {
 	expect_kind(
 		t,
@@ -1043,12 +1047,12 @@ test_function_body_cannot_reference_later_variable :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_hoisted_function_signature_uses_earlier_type_alias :: proc(t: ^testing.T) {
 	expect_ok(t, "Num :: number\nconsume(1)\nconsume :: fn(value: Num) {}")
 }
 
-// @(test)
+@(test)
 test_function_local_hoisted_function_captures_argument :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -1056,7 +1060,7 @@ test_function_local_hoisted_function_captures_argument :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_block_local_function_is_hoisted :: proc(t: ^testing.T) {
 	expect_ok(t, "{\nlocal()\nlocal :: fn() {}\n}")
 }
@@ -1066,7 +1070,7 @@ test_block_local_function_does_not_escape :: proc(t: ^testing.T) {
 	expect_kind(t, "{ local :: fn() {} }\nlocal()", .Undefined_Variable)
 }
 
-// @(test)
+@(test)
 test_block_hoisted_function_shadows_outer_function :: proc(t: ^testing.T) {
 	expect_ok(
 		t,
@@ -1074,17 +1078,227 @@ test_block_hoisted_function_shadows_outer_function :: proc(t: ^testing.T) {
 	)
 }
 
-// @(test)
+@(test)
 test_hoisted_stub_call_reports_stub :: proc(t: ^testing.T) {
 	expect_kind(t, "external()\nexternal :: fn()", .Call_To_Stub)
 }
 
-// @(test)
+@(test)
 test_hoisted_function_name_collisions_follow_source_order :: proc(t: ^testing.T) {
 	expect_kind(t, "foo := 1\nfoo :: fn() {}", .Duplicate_Fn_Definition)
 	expect_kind(t, "foo :: fn() {}\nfoo := 1", .Variable_Redeclaration)
 	expect_kind(t, "Thing :: number\nThing :: fn() {}", .Duplicate_Fn_Definition)
 	expect_kind(t, "Thing :: fn() {}\nThing :: number", .Variable_Redeclaration)
+}
+
+@(test)
+test_constant_value_is_hoisted :: proc(t: ^testing.T) {
+	expect_ok(t, "value := answer\nanswer :: 42")
+}
+
+@(test)
+test_constant_dependencies_are_resolved_out_of_order :: proc(t: ^testing.T) {
+	expect_ok(t, "first :: second + 1\nsecond :: 41\nvalue: number = first")
+}
+
+@(test)
+test_forward_type_alias_chain :: proc(t: ^testing.T) {
+	expect_ok(t, "value: First = 1\nFirst :: Second\nSecond :: number")
+}
+
+@(test)
+test_function_signature_uses_later_type_alias :: proc(t: ^testing.T) {
+	expect_ok(t, "consume(1)\nconsume :: fn(value: Num) {}\nNum :: number")
+}
+
+@(test)
+test_constant_definition_cycle :: proc(t: ^testing.T) {
+	expect_kind(t, "first :: second\nsecond :: first", .Cyclic_Constant_Definition)
+	expect_kind(
+		t,
+		"first :: second + 1\nsecond :: first + 1",
+		.Cyclic_Constant_Definition,
+	)
+}
+
+@(test)
+test_block_constant_is_hoisted_and_shadows_outer :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"answer :: \"outer\"\n{ value: number = answer\nanswer :: 42 }",
+	)
+}
+
+@(test)
+test_block_constant_does_not_escape :: proc(t: ^testing.T) {
+	expect_kind(t, "{ answer :: 42 }\nvalue := answer", .Undefined_Variable)
+}
+
+@(test)
+test_constant_rejects_function_argument :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"outer :: fn(value: number) -> number { return result\nresult :: value + 1 }",
+		.Function_Argument,
+	)
+}
+
+@(test)
+test_constant_rejects_function_call :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"value := first\nfirst :: read_second()\nread_second :: fn() -> number { return second }\nsecond :: 41",
+		.Function_Call,
+	)
+}
+
+@(test)
+test_function_call_is_rejected_before_runtime_dependency_cycle :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"first :: read_first()\nread_first :: fn() -> number { return first }",
+		.Function_Call,
+	)
+}
+
+@(test)
+test_constant_rejects_call_before_inspecting_function_body :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"mutable := 1\nconstant :: read()\nread :: fn() -> number { return mutable }",
+		.Function_Call,
+	)
+}
+
+@(test)
+test_constant_rejects_mutable_variable :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"mutable := 1\nconstant :: mutable + 1",
+		.Mutable_Variable,
+	)
+}
+
+@(test)
+test_typed_constant_rejects_function_call :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"produce :: fn() -> number { return 1 }\nanswer: number : produce()",
+		.Function_Call,
+	)
+}
+
+@(test)
+test_constant_rejects_calls_nested_in_expressions :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"produce :: fn() -> number { return 1 }\nanswer :: 1 + produce()",
+		.Function_Call,
+	)
+	expect_non_constant(
+		t,
+		"produce :: fn() -> number { return 1 }\nanswer :: -(produce())",
+		.Function_Call,
+	)
+	expect_non_constant(
+		t,
+		"produce :: fn() -> bool { return true }\nanswer :: false or produce()",
+		.Function_Call,
+	)
+}
+
+@(test)
+test_constant_rejects_mutable_variable_from_outer_scope :: proc(t: ^testing.T) {
+	expect_non_constant(
+		t,
+		"mutable := 1\n{ answer :: mutable + 1 }",
+		.Mutable_Variable,
+	)
+}
+
+@(test)
+test_constant_allows_nested_compile_time_expressions :: proc(t: ^testing.T) {
+	expect_ok(t, "first :: 40\nsecond :: -(first + 2)\nanswer: number = second")
+	expect_ok(t, "first :: true\nsecond :: false or (first and true)\nanswer: bool = second")
+}
+
+@(test)
+test_constant_allows_named_function_value :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"callback :: operation\noperation :: fn() -> number { return 1 }\nanswer := callback()",
+	)
+}
+
+@(test)
+test_repeated_forward_function_references_reuse_resolved_header :: proc(t: ^testing.T) {
+	expect_ok(t, "operation()\noperation()\noperation :: fn() {}")
+}
+
+@(test)
+test_multi_hop_procedure_alias_with_argument :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"foo :: fn(num: number) -> number { return num }\nbar :: foo\nzezo :: bar\nresult := zezo(5)",
+	)
+}
+
+@(test)
+test_procedure_alias_preserves_parameter_checks :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"foo :: fn(num: number) -> number { return num }\nbar :: foo\nzezo :: bar\nzezo()",
+		.Argument_Count_Mismatch,
+	)
+	expect_kind(
+		t,
+		"foo :: fn(num: number) -> number { return num }\nbar :: foo\nzezo :: bar\nzezo(\"five\")",
+		.Argument_Type_Mismatch,
+	)
+}
+
+@(test)
+test_procedure_alias_to_stub_cannot_be_called :: proc(t: ^testing.T) {
+	expect_kind(
+		t,
+		"external :: fn(value: number) -> number\nfirst :: external\nsecond :: first\nsecond(1)",
+		.Call_To_Stub,
+	)
+}
+
+@(test)
+test_forward_multi_hop_procedure_alias :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"result := zezo(5)\nzezo :: bar\nbar :: foo\nfoo :: fn(num: number) -> number { return num }",
+	)
+}
+
+@(test)
+test_typed_procedure_alias :: proc(t: ^testing.T) {
+	expect_ok(
+		t,
+		"foo :: fn(num: number) -> number { return num }\nbar: fn(number) -> number : foo\nresult := bar(5)",
+	)
+}
+
+@(test)
+test_function_can_recurse_through_forward_alias :: proc(t: ^testing.T) {
+	expect_ok(t, "foo :: fn() { alias() }\nalias :: foo")
+}
+
+@(test)
+test_non_constant_expression_messages :: proc(t: ^testing.T) {
+	expect_message(
+		t,
+		"produce :: fn() -> number { return 1 }\nanswer :: produce()",
+		"function calls cannot be used in compile-time constant definitions",
+	)
+	expect_message(
+		t,
+		"mutable := 1\nanswer :: mutable",
+		"mutable variable 'mutable' cannot be used in a compile-time constant definition",
+	)
 }
 
 //
@@ -1502,6 +1716,47 @@ expect_kind :: proc(
 	if ok {
 		testing.expectf(t, e.kind == kind, "%q: got %v, want %v", source, e.kind, kind, loc = loc)
 	}
+}
+
+@(private)
+expect_non_constant :: proc(
+	t: ^testing.T,
+	source: string,
+	reason: Non_Constant_Expression_Reason,
+	loc := #caller_location,
+) {
+	err := check(source)
+	e, has_error := err.?
+	testing.expectf(t, has_error, "%q: expected a non-constant expression error, got none", source, loc = loc)
+	if !has_error do return
+
+	testing.expectf(
+		t,
+		e.kind == .Non_Constant_Expression,
+		"%q: got %v, want Non_Constant_Expression",
+		source,
+		e.kind,
+		loc = loc,
+	)
+	if e.kind != .Non_Constant_Expression do return
+
+	data, has_data := e.data.?
+	testing.expectf(t, has_data, "%q: non-constant expression error has no data", source, loc = loc)
+	if !has_data do return
+
+	constant_data, is_constant := data.value.(Non_Constant_Expression_Error_Data)
+	testing.expectf(t, is_constant, "%q: non-constant expression error has the wrong data type", source, loc = loc)
+	if !is_constant do return
+
+	testing.expectf(
+		t,
+		constant_data.reason == reason,
+		"%q: got reason %v, want %v",
+		source,
+		constant_data.reason,
+		reason,
+		loc = loc,
+	)
 }
 
 @(private)

@@ -17,34 +17,35 @@ Expr_Stmt :: struct {
 }
 
 Ident_Decl_Stmt :: struct {
-	names:     [dynamic]Token,
-	value:     Maybe([dynamic]Expr),
-	constant:  bool,
-	op:        Token,
+	names:    [dynamic]Token,
+	value:    Maybe([dynamic]Expr),
+	constant: bool,
+	op:       Token,
 	// Can be nil if no type was specified in the declaration
-	type:      Maybe(Type),
-	// Set in: analyzer
-	decl_kind: Decl_Kind,
-	span:      Span,
+	type: Maybe(Type),
+	span: Span,
 }
 
 Ident_Assignment_Stmt :: struct {
-	names: [dynamic]Token,
-	value: [dynamic]Expr, // nocheckin: Rename to values
-	op:    Token,
-	span:  Span,
+	names:  [dynamic]Token,
+	values: [dynamic]Expr,
+	op:     Token,
+	span:   Span,
 }
 
 Fn_Decl_Stmt :: struct {
-	name:     Token,
+	name: Token,
 	// The function's signature and body. Shared with anonymous Fn_Literal_Expr values.
-	lit:      Fn_Literal_Expr,
+	lit: Fn_Literal_Expr,
 	// The declared type from the typed constant form (`foo: fn()->T : fn()->T {}`).
 	// nil for the bare `foo :: fn` form.
-	type:     Maybe(Type),
+	type: Maybe(Type),
 	// Maybe this should be in the lit?
 	receiver: Maybe(Fn_Receiver),
-	span:     Span,
+	// Set when a compile-time procedure alias requires a hygienic JS name.
+	// It existing means the transpiler has to mangle the name on emitting.
+	emit_id: Maybe(int),
+	span:    Span,
 }
 
 Fn_Arg :: struct {
@@ -85,11 +86,6 @@ Return_Stmt :: struct {
 	keyword: Token,
 	exprs:   [dynamic]Expr,
 	span:    Span,
-}
-
-Decl_Kind :: enum {
-	Value,
-	Type_Alias,
 }
 
 span_of_stmt :: proc(stmt: Stmt) -> Span {

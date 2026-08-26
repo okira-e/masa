@@ -1734,7 +1734,7 @@ test_function_call_single_targets :: proc(t: ^testing.T) {
 				"%s: wrong target name",
 				test.name,
 			)
-			call, is_call := expect_single_call(t, test.name, assignment.value)
+			call, is_call := expect_single_call(t, test.name, assignment.values)
 			if !is_call do continue
 			testing.expectf(
 				t,
@@ -1832,7 +1832,7 @@ test_function_call_multiple_targets :: proc(t: ^testing.T) {
 				continue
 			}
 			expect_target_names(t, test.name, test.source, assignment.names[:])
-			rhs = assignment.value
+			rhs = assignment.values
 		}
 
 		call, ok := expect_single_call(t, test.name, rhs)
@@ -1939,7 +1939,7 @@ test_multiple_direct_rhs_values :: proc(t: ^testing.T) {
 				continue
 			}
 			expect_target_names(t, test.name, test.source, assignment.names[:])
-			rhs = assignment.value
+			rhs = assignment.values
 		}
 
 		testing.expectf(t, len(rhs) == 2, "%s: got %d values, want 2", test.name, len(rhs))
@@ -2533,7 +2533,7 @@ parse_single_rhs :: proc(
 		}
 		return value, true
 	case ^syntax.Ident_Assignment_Stmt:
-		return s.value, true
+		return s.values, true
 	}
 
 	testing.expectf(t, false, "%s: expected a decl or assignment statement", source)

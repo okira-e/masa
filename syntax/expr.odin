@@ -39,6 +39,10 @@ Grouping_Expr :: struct {
 Ident_Expr :: struct {
 	token: Token,
 	span:  Span,
+	// Set by the analyzer when this identifier names a compile-time value.
+	constant_value: Maybe(Expr),
+	// Set by the analyzer when this identifier resolves to a named function.
+	resolved_fn: Maybe(^Fn_Decl_Stmt),
 }
 
 Logical_Expr :: struct {
@@ -50,12 +54,27 @@ Logical_Expr :: struct {
 }
 
 Fn_Call_Expr :: struct {
-	name:         Token,
-	args:         [dynamic]Expr,
-	awaited:      bool,
-	span:         Span,
+	name:    Token,
+	args:    [dynamic]Expr,
+	awaited: bool,
+	span:    Span,
 	// Set by the analyzer: nil until resolved, then the number of produced values.
 	return_count: Maybe(int),
+	/*
+	Set when the callee resolves to a procedure alias at compile time.
+
+	Example:
+		callback :: foo
+	*/
+	constant_callee: Maybe(Expr),
+	/*
+	Set when the callee resolves directly to a named function rather than
+	through a mutable variable (`foo := fn() {}`).
+
+	Example:
+		foo :: fn() {}
+	*/
+	resolved_fn: Maybe(^Fn_Decl_Stmt),
 }
 
 Fn_Literal_Expr :: struct {
@@ -70,24 +89,17 @@ Fn_Literal_Expr :: struct {
 
 span_of_expr :: proc(expr: Expr) -> Span {
 	switch e in expr {
-	case ^Literal_Expr:
-		return e.span
-	case ^Unary_Expr:
-		return e.span
-	case ^Binary_Expr:
-		return e.span
-	case ^Grouping_Expr:
-		return e.span
-	case ^Ident_Expr:
-		return e.span
-	case ^Logical_Expr:
-		return e.span
-	case ^Fn_Call_Expr:
-		return e.span
-	case ^Fn_Literal_Expr:
-		return e.span
+	case ^Literal_Expr:    return e.span
+	case ^Unary_Expr:      return e.span
+	case ^Binary_Expr:     return e.span
+	case ^Grouping_Expr:   return e.span
+	case ^Ident_Expr:      return e.span
+	case ^Logical_Expr:    return e.span
+	case ^Fn_Call_Expr:    return e.span
+	case ^Fn_Literal_Expr: return e.span
 	}
 
+	assert(false)
 	unreachable()
 }
 

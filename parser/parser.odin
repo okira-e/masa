@@ -247,10 +247,10 @@ parse_ident_assignment :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syn
 	if err != nil do return nil, err
 
 	stmt := new(syntax.Ident_Assignment_Stmt, allocator = p.allocator)
-	stmt.value = value
-	stmt.names = names
-	stmt.op    = op
-	stmt.span  = syntax.span_join(names[0].span, syntax.span_of_expr(value[len(value) - 1]))
+	stmt.values = value
+	stmt.names  = names
+	stmt.op     = op
+	stmt.span   = syntax.span_join(names[0].span, syntax.span_of_expr(value[len(value) - 1]))
 	return stmt, nil
 }
 
@@ -681,7 +681,6 @@ parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), syntax.Span, 
 	return returns, syntax.span_join(open.span, close.span), nil
 }
 
-// nocheckin: Check the trailing commma dunno what happens currently
 parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.Fn_Arg, Maybe(Parser_Error)) {
 	args := make([dynamic]syntax.Fn_Arg, allocator = p.allocator)
 	
@@ -767,7 +766,7 @@ parse_fn_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) 
 	return syntax.Fn_Call_Expr {
 		name    = name,
 		args    = args,
-		awaited = false, // nocheckin
+		awaited = false,
 		span    = syntax.span_join(name.span, close.span),
 	}, nil
 }
