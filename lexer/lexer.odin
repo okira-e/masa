@@ -57,6 +57,10 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 			new_token := make_token(l, l.current, .Comma, nil, nil)
 			append(&tokens, new_token)
 
+		case ';':
+			new_token := make_token(l, l.current, .Semicolon, nil, nil)
+			append(&tokens, new_token)
+
 		case '-':
 			new_token := make_token(l, l.current, .Minus, nil, nil)
 			append(&tokens, new_token)
@@ -230,7 +234,13 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 				// Check if this is a dot, a beginning of a floating point number, or an illegal
 				// identifier name that starts with a number
 				next, ok := peek_next(l, source)
-				if b == '.' &&
+				if b == '.' && ok && next == '.' {
+					new_token := make_token(l, l.current + 1, .Spread_Op, nil, nil)
+					append(&tokens, new_token)
+					l.current += 1
+					l.column += 1
+
+				} else if b == '.' &&
 				   (!ok || (ok && (!unicode.is_digit(rune(next)) && next != '.'))) {
 					new_token := make_token(l, l.current, .Dot, nil, nil)
 					append(&tokens, new_token)
@@ -249,6 +259,12 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 					if ok && (unicode.is_digit(rune(next)) || next == '.') {
 						for {
 							next, ok := peek_next(l, source)
+							if ok &&
+							   next == '.' &&
+							   l.current + 2 < len(source) &&
+							   source[l.current + 2] == '.' {
+								break
+							}
 							if ok && unicode.is_letter(rune(next)) {
 								err = make_error(l, .Ident_Starts_With_Number)
 								break
@@ -304,27 +320,34 @@ scan :: proc(l: ^Lexer, source: string) -> ([dynamic]syntax.Token, Maybe(Lexer_E
 					}
 				}
 
-				// Decide if it's a reserved keyword or an identifier name or special literal
-
-				token_kind: syntax.Token_Kind = .Ident
 
 				lexeme := string(source[l.last_lexeme_start:l.current + 1])
+				new_token: syntax.Token
 
-				keyword := syntax.keyword_from_string(lexeme)
-				if keyword != nil {
-					token_kind = .Keyword
-				}
-				
-				literal_kind: Maybe(syntax.Literal_Kind) = nil
-				if lexeme == "false" {
-					token_kind = .Literal
-					literal_kind = .Bool
-				} else if lexeme == "true" {
-					token_kind = .Literal
-					literal_kind = .Bool
+				if lexeme == "_" {
+					new_token = make_token(l, l.current, .Underscore, nil, nil)
+				} else {
+					// Decide if it's a reserved keyword or an identifier name or special literal
+
+					token_kind: syntax.Token_Kind = .Ident
+
+					keyword := syntax.keyword_from_string(lexeme)
+					if keyword != nil {
+						token_kind = .Keyword
+					}
+					
+					literal_kind: Maybe(syntax.Literal_Kind) = nil
+					if lexeme == "false" {
+						token_kind = .Literal
+						literal_kind = .Bool
+					} else if lexeme == "true" {
+						token_kind = .Literal
+						literal_kind = .Bool
+					}
+
+					new_token = make_token(l, l.current, token_kind, literal_kind, keyword)
 				}
 
-				new_token := make_token(l, l.current, token_kind, literal_kind, keyword)
 				append(&tokens, new_token)
 				l.column += skips
 			} else {

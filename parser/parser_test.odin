@@ -1241,6 +1241,173 @@ test_return_inside_fn_body :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_for_three_clause_shape :: proc(t: ^testing.T) {
+	source := "for i := 0; i < 10; i = i + 1 { value := i }"
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil || len(stmts) != 1 do return
+
+	loop, ok := stmts[0].(^syntax.For_Stmt)
+	testing.expect(t, ok, "expected For_Stmt")
+	if !ok do return
+
+	traditional, is_traditional := loop.variant.(syntax.Traditional_For)
+	testing.expect(t, is_traditional, "expected Traditional_For variant")
+	if !is_traditional do return
+
+	decl, is_decl := traditional.initializer.(^syntax.Ident_Decl_Stmt)
+	testing.expect(t, is_decl, "initializer should be a declaration")
+	if is_decl {
+		expect_span_text(t, source, decl.span, "i := 0", "loop initializer")
+	}
+
+	condition, is_comparison := traditional.condition.(^syntax.Binary_Expr)
+	testing.expect(t, is_comparison, "condition should be a comparison")
+	if is_comparison {
+		testing.expectf(t, condition.op == .Less, "condition operator is %v, want Less", condition.op)
+		expect_span_text(t, source, condition.span, "i < 10", "loop condition")
+	}
+
+	assignment, is_assignment := traditional.post.(^syntax.Ident_Assignment_Stmt)
+	testing.expect(t, is_assignment, "post should be an assignment")
+	if is_assignment {
+		expect_span_text(t, source, assignment.span, "i = i + 1", "loop post")
+	}
+
+	block, is_block := loop.block.(^syntax.Block_Stmt)
+	testing.expect(t, is_block, "loop body should be a block")
+	if is_block {
+		testing.expectf(t, len(block.stmts) == 1, "expected one body statement, got %d", len(block.stmts))
+	}
+	expect_span_text(t, source, loop.keyword.span, "for", "loop keyword")
+	expect_span_text(t, source, loop.span, source, "loop statement")
+}
+
+@(test)
+test_for_condition_only_forms :: proc(t: ^testing.T) {
+	tests := []string {
+		"for true {}",
+		"for i < 10 { i = i + 1 }",
+		"for ready() {}",
+		"for (a and b) {}",
+		"for true { for false {} }",
+	}
+
+	for source in tests {
+		expect_parse_ok(t, source)
+	}
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	source := "for ready() {}"
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil || len(stmts) != 1 do return
+
+	loop, ok := stmts[0].(^syntax.For_Stmt)
+	testing.expect(t, ok, "expected For_Stmt")
+	if !ok do return
+	condition_loop, is_condition := loop.variant.(syntax.Condition_For)
+	testing.expect(t, is_condition, "expected Condition_For variant")
+	if !is_condition do return
+	_, is_call := condition_loop.condition.(^syntax.Fn_Call_Expr)
+	testing.expect(t, is_call, "call condition should remain a Fn_Call_Expr")
+}
+
+@(test)
+test_for_range_shape :: proc(t: ^testing.T) {
+	source := "for val, i in 2..5 { result := val + i }"
+
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	testing.expectf(t, lexer_err == nil, "unexpected lexer error: %v", lexer_err)
+	if lexer_err != nil do return
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parse(&p)
+	testing.expectf(t, parser_err == nil, "unexpected parser error: %v", parser_err)
+	if parser_err != nil || len(stmts) != 1 do return
+
+	loop, is_loop := stmts[0].(^syntax.For_Stmt)
+	testing.expect(t, is_loop, "expected For_Stmt")
+	if !is_loop do return
+	range_loop, is_range := loop.variant.(syntax.Range_For)
+	testing.expect(t, is_range, "expected Range_For variant")
+	if !is_range do return
+
+	expect_span_text(t, source, range_loop.capture_ident.span, "val", "range capture")
+	iterator, has_iterator := range_loop.iterator.?
+	testing.expect(t, has_iterator, "expected iterator capture")
+	if has_iterator {
+		expect_span_text(t, source, iterator.span, "i", "range iterator")
+	}
+	testing.expect(t, range_loop.iterable == nil, "identifier iterables are not supported")
+	range, has_range := range_loop.range.?
+	testing.expect(t, has_range, "expected numeric range")
+	if has_range {
+		expect_span_text(t, source, syntax.span_of_expr(range.lower), "2", "range lower bound")
+		expect_span_text(t, source, syntax.span_of_expr(range.upper), "5", "range upper bound")
+	}
+	expect_span_text(t, source, loop.span, source, "range loop")
+}
+
+@(test)
+test_for_header_trivia_and_simple_statements :: proc(t: ^testing.T) {
+	expect_parse_ok(t, "for tick(); ready(); tick() {}")
+	expect_parse_ok(t, "for i = 0; i < 10; i = i + 1 {}")
+	expect_parse_ok(t, "for i := 0; // initializer\n i < 10; // condition\n i = i + 1 {}")
+}
+
+@(test)
+test_for_errors :: proc(t: ^testing.T) {
+	expect_parse_error(t, "for {}", .Unexpected_Token)
+	expect_parse_error(t, "for i := 0 {}", .Unexpected_Token)
+	expect_parse_error(t, "for i := 0; i < 10 i = i + 1 {}", .Unexpected_Token)
+	expect_parse_error(t, "for i := 0; ; i = i + 1 {}", .Unexpected_Token)
+	expect_parse_error(t, "for i := 0; i < 10; {}", .Unexpected_Token)
+	expect_parse_error(t, "for i := 0; i < 10; j := 1 {}", .Unexpected_Token)
+	expect_parse_error(t, "for i := 0; i < 10; i = i + 1", .Unexpected_Token)
+	expect_parse_error(t, "for limit :: 10; limit > 0; tick() {}", .Unexpected_Token)
+	expect_parse_error(t, "for limit: number : 10; limit > 0; tick() {}", .Unexpected_Token)
+	expect_parse_error(t, "for val in items {}", .Unexpected_Token)
+	expect_parse_error(t, "for val in ..10 {}", .Unexpected_Token)
+	expect_parse_error(t, "for val in 0.. {}", .Unexpected_Token)
+	expect_parse_error(t, "x := 1;", .Missing_Terminator)
+}
+
+@(test)
 test_expr_spans :: proc(t: ^testing.T) {
 	// Each expression's span should cover its full source extent. `start`/`end` are
 	// byte offsets into `source` whose slice should equal `lexeme`. When `decl` is

@@ -114,6 +114,7 @@ test_lexer_single_tokens :: proc(t: ^testing.T) {
 			expected = []syntax.Token_Kind{.Left_Paren, .EOF},
 		},
 		{name = "slash", input = "/", expected = []syntax.Token_Kind{.Slash, .EOF}},
+		{name = "semicolon", input = ";", expected = []syntax.Token_Kind{.Semicolon, .EOF}},
 		{name = "newline", input = "\n", expected = []syntax.Token_Kind{.New_Line, .EOF}},
 		{name = "comment", input = "// hello", expected = []syntax.Token_Kind{.Comment, .EOF}},
 	}
@@ -922,9 +923,21 @@ test_lexer_numbers_and_dots :: proc(t: ^testing.T) {
 			expect_error = false,
 		},
 		{name = "multiple dots", input = "42.0.2", expected = {}, expect_error = true},
-		{name = "multiple leading dots", input = "..42", expected = {}, expect_error = true},
-		{name = "dots chaining", input = "42..0", expected = {}, expect_error = true},
-		{name = "complex dots mixing", input = "..42.0", expected = {}, expect_error = true},
+		{
+			name = "range before number",
+			input = "..42",
+			expected = []syntax.Token_Kind{.Spread_Op, .Literal, .EOF},
+		},
+		{
+			name = "numeric range",
+			input = "42..0",
+			expected = []syntax.Token_Kind{.Literal, .Spread_Op, .Literal, .EOF},
+		},
+		{
+			name = "range before decimal",
+			input = "..42.0",
+			expected = []syntax.Token_Kind{.Spread_Op, .Literal, .EOF},
+		},
 	}
 
 	for tt in tests {
@@ -1214,6 +1227,23 @@ test_lexer_keywords :: proc(t: ^testing.T) {
 			expected = []syntax.Token_Kind{.Keyword, .EOF},
 			keyword_kind = .If,
 		},
+		{
+			name = "for keyword",
+			input = "for",
+			expected = []syntax.Token_Kind{.Keyword, .EOF},
+			keyword_kind = .For,
+		},
+		{
+			name = "for prefix remains identifier",
+			input = "foreach",
+			expected = []syntax.Token_Kind{.Ident, .EOF},
+		},
+		{
+			name = "in keyword",
+			input = "in",
+			expected = []syntax.Token_Kind{.Keyword, .EOF},
+			keyword_kind = .In,
+		},
 	}
 
 	for tt in tests {
@@ -1271,6 +1301,83 @@ test_lexer_keywords :: proc(t: ^testing.T) {
 				testing.fail_now(t)
 			}
 		}
+	}
+}
+
+@(test)
+test_lexer_for_header :: proc(t: ^testing.T) {
+	source := "for i := 0; i < 10; i = i + 1"
+	expected := []syntax.Token_Kind {
+		.Keyword,
+		.Ident,
+		.Colon_Equal,
+		.Literal,
+		.Semicolon,
+		.Ident,
+		.Less,
+		.Literal,
+		.Semicolon,
+		.Ident,
+		.Equal,
+		.Ident,
+		.Plus,
+		.Literal,
+		.EOF,
+	}
+
+	l: Lexer
+	init(&l)
+	tokens, err := scan(&l, source)
+	defer delete(tokens)
+	testing.expectf(t, err == nil, "unexpected lexer error: %v", err)
+	if err != nil do return
+
+	testing.expectf(t, len(tokens) == len(expected), "expected %d tokens, got %d", len(expected), len(tokens))
+	if len(tokens) != len(expected) do return
+
+	for kind, i in expected {
+		testing.expectf(t, tokens[i].kind == kind, "token %d: got %v, want %v", i, tokens[i].kind, kind)
+	}
+	testing.expectf(t, tokens[0].keyword == .For, "got keyword %v, want For", tokens[0].keyword)
+	testing.expectf(t, source[tokens[4].span.start:tokens[4].span.end] == ";", "first semicolon span is wrong")
+	testing.expectf(t, source[tokens[8].span.start:tokens[8].span.end] == ";", "second semicolon span is wrong")
+}
+
+@(test)
+test_lexer_exclusive_range :: proc(t: ^testing.T) {
+	tests := []struct {
+		source:   string,
+		expected: []syntax.Token_Kind,
+	} {
+		{
+			source = "0..10",
+			expected = []syntax.Token_Kind{.Literal, .Spread_Op, .Literal, .EOF},
+		},
+		{
+			source = "start..end",
+			expected = []syntax.Token_Kind{.Ident, .Spread_Op, .Ident, .EOF},
+		},
+		{
+			source = "0.5..10.5",
+			expected = []syntax.Token_Kind{.Literal, .Spread_Op, .Literal, .EOF},
+		},
+	}
+
+	for test in tests {
+		l: Lexer
+		init(&l)
+		tokens, err := scan(&l, test.source)
+		defer delete(tokens)
+		testing.expectf(t, err == nil, "%q: unexpected lexer error: %v", test.source, err)
+		if err != nil do continue
+		testing.expectf(t, len(tokens) == len(test.expected), "%q: expected %d tokens, got %d", test.source, len(test.expected), len(tokens))
+		if len(tokens) != len(test.expected) do continue
+
+		for kind, i in test.expected {
+			testing.expectf(t, tokens[i].kind == kind, "%q token %d: got %v, want %v", test.source, i, tokens[i].kind, kind)
+		}
+		range_token := tokens[1]
+		testing.expectf(t, test.source[range_token.span.start:range_token.span.end] == "..", "%q: range span is wrong", test.source)
 	}
 }
 

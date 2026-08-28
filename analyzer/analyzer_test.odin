@@ -337,6 +337,105 @@ test_if_condition_must_be_bool :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_for_three_clause_is_valid :: proc(t: ^testing.T) {
+	expect_ok(t, "for i := 0; i < 10; i = i + 1 { value := i }")
+}
+
+@(test)
+test_for_condition_only_is_valid :: proc(t: ^testing.T) {
+	expect_ok(t, "keep_going := true\nfor keep_going { keep_going = false }")
+	expect_ok(t, "ready :: fn() -> bool { return true }\nfor ready() {}")
+}
+
+@(test)
+test_for_condition_must_be_bool :: proc(t: ^testing.T) {
+	err := check("for 5 {}")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expectf(t, e.kind == .Condition_Not_Bool, "got %v", e.kind)
+}
+
+@(test)
+test_for_initializer_scope_covers_loop :: proc(t: ^testing.T) {
+	expect_ok(t, "for i := 0; i < 10; i = i + 1 { next := i + 1 }")
+}
+
+@(test)
+test_for_initializer_does_not_escape :: proc(t: ^testing.T) {
+	err := check("for i := 0; i < 1; i = i + 1 {}\ni + 1")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expectf(t, e.kind == .Undefined_Variable, "got %v", e.kind)
+}
+
+@(test)
+test_for_body_scope_does_not_reach_post :: proc(t: ^testing.T) {
+	err := check("for i := 0; i < 1; body_value = i { body_value := i }")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expectf(t, e.kind == .Undefined_Variable, "got %v", e.kind)
+}
+
+@(test)
+test_for_post_is_type_checked :: proc(t: ^testing.T) {
+	err := check("for i := 0; i < 1; i = \"wrong\" {}")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expectf(t, e.kind == .Type_Mismatch_On_Assignment, "got %v", e.kind)
+}
+
+@(test)
+test_for_initializer_can_shadow_outer_scope :: proc(t: ^testing.T) {
+	expect_ok(t, "i := \"outer\"\nfor i := 0; i < 1; i = i + 1 {}\ni = \"after\"")
+}
+
+@(test)
+test_for_exclusive_range_is_valid :: proc(t: ^testing.T) {
+	expect_ok(t, "for value in 0..10 { next := value + 1 }")
+	expect_ok(t, "for value, index in 2..10 { sum := value + index }")
+	expect_ok(t, "lower := 2\nupper := 10\nfor value in lower..upper { copy := value }")
+}
+
+@(test)
+test_for_range_bounds_must_be_numbers :: proc(t: ^testing.T) {
+	err := check("for value in false..10 {}")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if ok {
+		testing.expectf(t, e.kind == .Range_Bound_Not_Number, "got %v", e.kind)
+	}
+
+	err = check("for value in 0..\"end\" {}")
+	e, ok = err.?
+	testing.expect(t, ok)
+	if ok {
+		testing.expectf(t, e.kind == .Range_Bound_Not_Number, "got %v", e.kind)
+	}
+}
+
+@(test)
+test_for_range_captures_do_not_escape :: proc(t: ^testing.T) {
+	err := check("for value, index in 0..10 {}\nvalue + index")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expectf(t, e.kind == .Undefined_Variable, "got %v", e.kind)
+}
+
+@(test)
+test_for_range_capture_names_must_be_unique :: proc(t: ^testing.T) {
+	err := check("for value, value in 0..10 {}")
+	e, ok := err.?
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expectf(t, e.kind == .Variable_Redeclaration, "got %v", e.kind)
+}
+
+@(test)
 test_type_alias_accepted :: proc(t: ^testing.T) {
 	// `Num` aliases `number` and is identity-equal, so a number literal fits.
 	err := check("Num :: number\nx : Num = 5")

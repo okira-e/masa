@@ -2,6 +2,7 @@ package syntax
 
 Keyword :: enum u8 {
 	If,
+	For,
 	Fn,
 	Async,
 	Await,
@@ -9,6 +10,7 @@ Keyword :: enum u8 {
 	And,
 	Or,
 	Return,
+	In,
 }
 
 Keyword_Entry :: struct {
@@ -18,6 +20,7 @@ Keyword_Entry :: struct {
 
 keywords := []Keyword_Entry {
 	{"if",     .If},
+	{"for",    .For},
 	{"fn",     .Fn},
 	{"async",  .Async},
 	{"await",  .Await},
@@ -25,6 +28,7 @@ keywords := []Keyword_Entry {
 	{"and",    .And},
 	{"or",     .Or},
 	{"return", .Return},
+	{"in",     .In},
 }
 
 keyword_from_string :: proc(s: string) -> Maybe(Keyword) {
@@ -36,4 +40,3 @@ keyword_from_string :: proc(s: string) -> Maybe(Keyword) {
 
 	return nil
 }
-

@@ -242,6 +242,9 @@ check_stmt :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> Maybe(Analyzer_Error) {
 	case ^syntax.If_Stmt:
 		return check_if_stmt(a, stmt)
 
+	case ^syntax.For_Stmt:
+		return check_for_stmt(a, stmt)
+
 	case ^syntax.Block_Stmt:
 		return check_block_stmt(a, stmt, false, []Type{}, []Block_Capture{})
 
@@ -872,16 +875,8 @@ check_expr_list :: proc(a: ^Analyzer, exprs: []syntax.Expr) -> ([dynamic]Checked
 }
 
 check_if_stmt :: proc(a: ^Analyzer, stmt: ^syntax.If_Stmt) -> Maybe(Analyzer_Error) {
-	cond_type, err := check_single_expr(a, stmt.condition)
+	err := check_condition_expr(a, stmt.condition)
 	if err != nil do return err
-	cond_type_symbol, sure := cond_type.(^Symbol)
-	if !sure {
-		return analyzer_error(.Condition_Not_Bool, syntax.span_of_expr(stmt.condition))
-	}
-
-	if cond_type_symbol != a.t_bool {
-		return analyzer_error(.Condition_Not_Bool, syntax.span_of_expr(stmt.condition))
-	}
 
 	err = check_stmt(a, stmt.then_block)
 	if err != nil do return err
@@ -889,6 +884,107 @@ check_if_stmt :: proc(a: ^Analyzer, stmt: ^syntax.If_Stmt) -> Maybe(Analyzer_Err
 	if else_stmt, has := stmt.else_branch.?; has {
 		err = check_stmt(a, else_stmt)
 		if err != nil do return err
+	}
+
+	return nil
+}
+
+check_for_stmt :: proc(a: ^Analyzer, stmt: ^syntax.For_Stmt) -> Maybe(Analyzer_Error) {
+	check_range_bound :: proc(a: ^Analyzer, bound: syntax.Expr) -> Maybe(Analyzer_Error) {
+		type, err := check_single_expr(a, bound)
+		if err != nil do return err
+
+		type_symbol, is_symbol := type.(^Symbol)
+		if !is_symbol || type_symbol != a.t_number {
+			return analyzer_error(.Range_Bound_Not_Number, syntax.span_of_expr(bound))
+		}
+
+		return nil
+	}
+
+	declare_for_capture :: proc(a: ^Analyzer, token: syntax.Token) -> Maybe(Analyzer_Error) {
+		name := a.source[token.span.start:token.span.end]
+		if _, duplicate := a.env.symbols[name]; duplicate {
+			return analyzer_error(
+				.Variable_Redeclaration,
+				token.span,
+				Name_Error_Data{role = .Variable},
+			)
+		}
+
+		symbol := new_symbol(
+			Var_Symbol {
+				constant   = false,
+				decl_token = token,
+				type       = a.t_number,
+			},
+		)
+		append(&a.env.owned_symbols, symbol)
+		a.env.symbols[name] = symbol
+		return nil
+	}
+
+	loop_scope := make_scope(a.env)
+	a.env = loop_scope
+	defer {
+		a.env = loop_scope.parent.?
+		free_scope(loop_scope)
+	}
+
+	switch variant in stmt.variant {
+	case syntax.Condition_For:
+		err := check_condition_expr(a, variant.condition)
+		if err != nil do return err
+
+		return check_stmt(a, stmt.block)
+
+	case syntax.Traditional_For:
+		err := check_stmt(a, variant.initializer)
+		if err != nil do return err
+
+		err = check_condition_expr(a, variant.condition)
+		if err != nil do return err
+
+		err = check_stmt(a, stmt.block)
+		if err != nil do return err
+
+		return check_stmt(a, variant.post)
+
+	case syntax.Range_For:
+		range, has_range := variant.range.?
+		if !has_range {
+			return analyzer_error(
+				.Illegal_Statement,
+				stmt.span,
+				Illegal_Context_Error_Data{ctx = .Statement},
+			)
+		}
+
+		err := check_range_bound(a, range.lower)
+		if err != nil do return err
+		err = check_range_bound(a, range.upper)
+		if err != nil do return err
+
+		err = declare_for_capture(a, variant.capture_ident)
+		if err != nil do return err
+		if iterator, has_iterator := variant.iterator.?; has_iterator {
+			err = declare_for_capture(a, iterator)
+			if err != nil do return err
+		}
+
+		return check_stmt(a, stmt.block)
+	}
+
+	return nil
+}
+
+check_condition_expr :: proc(a: ^Analyzer, condition: syntax.Expr) -> Maybe(Analyzer_Error) {
+	cond_type, err := check_single_expr(a, condition)
+	if err != nil do return err
+
+	cond_type_symbol, is_symbol := cond_type.(^Symbol)
+	if !is_symbol || cond_type_symbol != a.t_bool {
+		return analyzer_error(.Condition_Not_Bool, syntax.span_of_expr(condition))
 	}
 
 	return nil
@@ -1601,6 +1697,9 @@ always_terminates :: proc(a: ^Analyzer, stmt: syntax.Stmt) -> bool {
 			always_terminates(a, s.else_branch.?)
 		)
 
+	case ^syntax.For_Stmt:
+		return false
+
 	case ^syntax.Block_Stmt:
 		// @Performance: We Require a return statement to always be present
 		// in the last line of any function to improve compiler performance.
@@ -1791,6 +1890,7 @@ Analyzer_Error_Kind :: enum u8 {
 	Type_In_Value_Position,
 	Operator_Type_Mismatch,
 	Condition_Not_Bool,
+	Range_Bound_Not_Number,
 	Not_Callable,
 	Call_To_Stub,
 	Await_Non_Async_Function,
@@ -2028,7 +2128,10 @@ error_message :: proc(
 		}
 
 	case .Condition_Not_Bool:
-		return fmt.aprintf("if condition must be a bool", allocator = allocator)
+		return fmt.aprintf("condition must be a bool", allocator = allocator)
+
+	case .Range_Bound_Not_Number:
+		return fmt.aprintf("range bound must be a number", allocator = allocator)
 
 	case .Not_Callable:
 		return fmt.aprintf("value '%s' is not callable", name, allocator = allocator)

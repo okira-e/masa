@@ -70,6 +70,38 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 		}
 		strings.write_byte(b, ')')
 
+	case ^syntax.For_Stmt:
+		strings.write_string(b, "(for ")
+		switch variant in st.variant {
+		case syntax.Condition_For:
+			build_ast_from_expr(b, source, variant.condition)
+
+		case syntax.Traditional_For:
+			build_ast_from_stmt(b, source, variant.initializer)
+			strings.write_string(b, "; ")
+			build_ast_from_expr(b, source, variant.condition)
+			strings.write_string(b, "; ")
+			build_ast_from_stmt(b, source, variant.post)
+
+		case syntax.Range_For:
+			strings.write_string(b, source[variant.capture_ident.span.start:variant.capture_ident.span.end])
+			if iterator, has_iterator := variant.iterator.?; has_iterator {
+				strings.write_string(b, ", ")
+				strings.write_string(b, source[iterator.span.start:iterator.span.end])
+			}
+			strings.write_string(b, " in ")
+			if range, has_range := variant.range.?; has_range {
+				build_ast_from_expr(b, source, range.lower)
+				strings.write_string(b, "..")
+				build_ast_from_expr(b, source, range.upper)
+			} else if iterable, has_iterable := variant.iterable.?; has_iterable {
+				strings.write_string(b, source[iterable.span.start:iterable.span.end])
+			}
+		}
+		strings.write_byte(b, ' ')
+		build_ast_from_stmt(b, source, st.block)
+		strings.write_byte(b, ')')
+
 	case ^syntax.Block_Stmt:
 		strings.write_string(b, "{ ")
 		for s, i in st.stmts {

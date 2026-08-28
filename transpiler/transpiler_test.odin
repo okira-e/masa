@@ -1,6 +1,5 @@
 package transpiler
 
-import "core:fmt"
 import "../analyzer"
 import "../lexer"
 import "../parser"
@@ -100,6 +99,114 @@ test_else_if_chain :: proc(t: ^testing.T) {
 		t,
 		"y := 0\nif 1 == 2 { y = 1 } else if 1 == 1 { y = 2 } else { y = 3 }",
 		"let y = 0;\nif (1 === 2) {\n  y = 1;\n} else if (1 === 1) {\n  y = 2;\n} else {\n  y = 3;\n}\n",
+	)
+}
+
+@(test)
+test_for_three_clause :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for i := 0; i < 10; i = i + 1 { value := i }",
+		"for (let i = 0; i < 10; i = i + 1) {\n  let value = i;\n}\n",
+	)
+}
+
+@(test)
+test_for_condition_only :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"keep_going := true\nfor keep_going { keep_going = false }",
+		"let keep_going = true;\nwhile (keep_going) {\n  keep_going = false;\n}\n",
+	)
+}
+
+@(test)
+test_for_call_clauses :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"tick :: fn() {}\nready :: fn() -> bool { return true }\nfor tick(); ready(); tick() {}",
+		"function tick() {\n}\nfunction ready() {\n  return true;\n}\nfor (tick(); ready(); tick()) {\n}\n",
+	)
+}
+
+@(test)
+test_for_nested :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for i := 0; i < 2; i = i + 1 { for i < 1 { i = i + 1 } }",
+		"for (let i = 0; i < 2; i = i + 1) {\n  while (i < 1) {\n    i = i + 1;\n  }\n}\n",
+	)
+}
+
+@(test)
+test_for_reserved_identifier_is_mangled :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for class := 0; class < 1; class = class + 1 {}",
+		"for (let $class = 0; $class < 1; $class = $class + 1) {\n}\n",
+	)
+}
+
+@(test)
+test_for_exclusive_range :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for value in 2..5 { copy := value }",
+		"{\n  const $range_lower_0 = 2;\n  const $range_upper_0 = 5;\n  for (let value = $range_lower_0; value < $range_upper_0; value = value + 1) {\n    let copy = value;\n  }\n}\n",
+	)
+}
+
+@(test)
+test_for_exclusive_range_with_iterator :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for value, index in 2..5 { sum := value + index }",
+		"{\n  const $range_lower_0 = 2;\n  const $range_upper_0 = 5;\n  for (let value = $range_lower_0, index = 0; value < $range_upper_0; value = value + 1, index = index + 1) {\n    let sum = value + index;\n  }\n}\n",
+	)
+}
+
+@(test)
+test_for_range_reserved_captures_are_mangled :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for class, static in 0..2 {}",
+		"{\n  const $range_lower_0 = 0;\n  const $range_upper_0 = 2;\n  for (let $class = $range_lower_0, $static = 0; $class < $range_upper_0; $class = $class + 1, $static = $static + 1) {\n  }\n}\n",
+	)
+}
+
+@(test)
+test_for_range_expression_bounds :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"lower := 2\nupper := 5\nfor value in lower..upper {}",
+		"let lower = 2;\nlet upper = 5;\n{\n  const $range_lower_0 = lower;\n  const $range_upper_0 = upper;\n  for (let value = $range_lower_0; value < $range_upper_0; value = value + 1) {\n  }\n}\n",
+	)
+}
+
+@(test)
+test_for_range_lower_bound_can_be_shadowed_by_capture :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"value := 2\nfor value in value..5 {}",
+		"let value = 2;\n{\n  const $range_lower_0 = value;\n  const $range_upper_0 = 5;\n  for (let value = $range_lower_0; value < $range_upper_0; value = value + 1) {\n  }\n}\n",
+	)
+}
+
+@(test)
+test_for_range_upper_bound_can_be_shadowed_by_capture :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"value := 5\nfor value in 0..value {}",
+		"let value = 5;\n{\n  const $range_lower_0 = 0;\n  const $range_upper_0 = value;\n  for (let value = $range_lower_0; value < $range_upper_0; value = value + 1) {\n  }\n}\n",
+	)
+}
+
+@(test)
+test_nested_for_ranges_use_distinct_bound_names :: proc(t: ^testing.T) {
+	expect_js(
+		t,
+		"for outer in 0..2 { for inner in 0..2 {} }",
+		"{\n  const $range_lower_0 = 0;\n  const $range_upper_0 = 2;\n  for (let outer = $range_lower_0; outer < $range_upper_0; outer = outer + 1) {\n    {\n      const $range_lower_1 = 0;\n      const $range_upper_1 = 2;\n      for (let inner = $range_lower_1; inner < $range_upper_1; inner = inner + 1) {\n      }\n    }\n  }\n}\n",
 	)
 }
 

@@ -12,6 +12,7 @@ import "core:strings"
 // - statement        -> ident_decl
 //                     | ident_assignment
 //                     | if_stmt
+//                     | for_stmt
 //                     | block
 //                     | fn_call
 //                     | return_stmt
@@ -21,6 +22,10 @@ import "core:strings"
 //                     | IDENT ":" TYPE ( ( "=" | ":" ) expression )? ;
 // - ident_assignment -> IDENT "=" expression ;
 // - if_stmt          -> "if" expression block ( "else" ( if_stmt | block ) )? ;
+// - for_stmt         -> "for" expression block
+//                     | "for" for_initializer ";" expression ";" for_post block ;
+// - for_initializer  -> mutable_decl | ident_assignment | fn_call | expr_stmt ;
+// - for_post         -> ident_assignment | fn_call | expr_stmt ;
 // - block            -> "{" ( statement TERMINATOR )* "}" ;
 // - expr_stmt        -> expression ;
 // - TYPE             -> "bool" | "number" | "any" | "string" ;
@@ -90,7 +95,7 @@ parse :: proc(p: ^Parser) -> ([dynamic]syntax.Stmt, Maybe(Parser_Error)) {
 }
 
 parse_stmt :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
-	next, _ := next(p)
+	next, _ := peek(p)
 	#partial switch current(p).kind {
 	case .Ident:
 
@@ -141,6 +146,9 @@ parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (syntax.Stmt, Maybe(Pa
 	#partial switch keyword {
 	case .If:
 		return parse_if(p)
+
+	case .For:
+		return parse_for(p)
 
 	case .Return:
 		return parse_return(p)
@@ -206,6 +214,244 @@ parse_if :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	return stmt, nil
 }
 
+parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
+	keyword := current(p)
+	advance(p) // consume `for`
+	skip_trivia(p)
+
+	if current(p).kind == .Left_Brace {
+		return nil, Parser_Error {
+			kind    = .Unexpected_Token,
+			message = "expected a loop condition after 'for'",
+			token   = current(p),
+		}
+	}
+
+	stmt := new(syntax.For_Stmt, allocator = p.allocator)
+
+	looks_like_range_for :: proc(p: ^Parser) -> bool {
+		if current(p).kind != .Ident do return false
+
+		second, ok := peek(p, 1)
+		if !ok do return false
+
+		if second.kind == .Keyword && second.keyword == .In {
+			return true
+		}
+
+		if second.kind != .Comma do return false
+
+		if capture, ok := peek(p, 2); !ok || !matches(capture.kind, .Ident, .Underscore) {
+			return false
+		}
+
+		in_token, in_ok := peek(p, 3)
+		if !in_ok do return false
+
+		return ok && in_token.kind == .Keyword && in_token.keyword == .In
+	}
+
+	looks_like_traditional_for :: proc(p: ^Parser) -> bool {
+		paren_depth := 0
+
+		for offset := 0;; offset += 1 {
+			token, ok := peek(p, offset)
+			if !ok do return false
+
+			#partial switch token.kind {
+			case .Left_Paren:
+				paren_depth += 1
+
+			case .Right_Paren:
+				if paren_depth > 0 {
+					paren_depth -= 1
+				}
+
+			case .Semicolon:
+				if paren_depth == 0 {
+					return true
+				}
+
+			case .Left_Brace, .Right_Brace, .EOF:
+				if paren_depth == 0 {
+					return false
+				}
+			}
+		}
+	}
+
+
+	next_token, next_ok := peek(p)
+	if looks_like_range_for(p) {
+		ident := current(p)
+		advance(p) // Ident
+
+		iterator: Maybe(syntax.Token) = nil
+		if current(p).kind == .Comma {
+			advance(p) // comma
+
+			if current(p).kind != .Underscore {
+				if current(p).kind != .Ident {
+					return nil, Parser_Error {
+						kind    = .Unexpected_Token,
+						message = "expected an identifier or '_' after ',' in range loop",
+						token   = current(p),
+					}
+				}
+
+				iterator = current(p)
+				advance(p) // iterator ident
+			} else {
+				advance(p) // underscore
+			}
+		}
+
+		if current(p).kind != .Keyword || current(p).keyword != .In {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected 'in' after range loop captures",
+				token   = current(p),
+			}
+		}
+
+		advance(p) // in
+
+		lower_expr, lower_expr_err := parse_expr(p) // advances lower expr
+		if lower_expr_err != nil do return nil, lower_expr_err
+
+		if current(p).kind != .Spread_Op {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected '..' after the lower range bound",
+				token   = current(p),
+			}
+		}
+		advance(p) // '..'
+
+		upper_expr, upper_expr_err := parse_expr(p) // advances upper expr
+		if upper_expr_err != nil do return nil, upper_expr_err
+
+		block, body_err := parse_block(p)
+		if body_err != nil do return nil, body_err
+
+		stmt^ = syntax.For_Stmt {
+			keyword = keyword,
+			block   = block,
+			span    = syntax.span_join(keyword.span, syntax.span_of_stmt(block)),
+			variant = syntax.Range_For {
+				iterator      = iterator,
+				capture_ident = ident,
+				range         = syntax.Range {
+					lower = lower_expr,
+					upper = upper_expr,
+				},
+				iterable = nil, // We don't have list type yet
+			}
+		}
+
+	} else if looks_like_traditional_for(p) {
+		decl_stmt, decl_stmt_err := parse_stmt(p)
+		if decl_stmt_err != nil do return nil, decl_stmt_err
+
+		initializer_is_valid := false
+		#partial switch initializer in decl_stmt {
+		case ^syntax.Ident_Decl_Stmt:
+			initializer_is_valid = !initializer.constant
+
+		case ^syntax.Ident_Assignment_Stmt, ^syntax.Fn_Call_Stmt, ^syntax.Expr_Stmt:
+			initializer_is_valid = true
+		}
+		if !initializer_is_valid {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "for-loop initializer must be a mutable declaration or simple statement",
+				token   = syntax.Token{span = syntax.span_of_stmt(decl_stmt)},
+			}
+		}
+
+		if current(p).kind != .Semicolon {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected ';' after the for-loop initializer",
+				token   = current(p),
+			}
+		}
+		advance(p) // ;
+		skip_trivia(p)
+
+		cond_expr, cond_expr_err := parse_expr(p)
+		if cond_expr_err != nil do return nil, cond_expr_err
+
+		if current(p).kind != .Semicolon {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected ';' after the for-loop condition",
+				token   = current(p),
+			}
+		}
+		advance(p) // ;
+		skip_trivia(p)
+
+		post_stmt, post_stmt_err := parse_stmt(p)
+		if post_stmt_err != nil do return nil, post_stmt_err
+
+		post_is_valid := false
+		#partial switch post in post_stmt {
+		case ^syntax.Ident_Assignment_Stmt, ^syntax.Fn_Call_Stmt, ^syntax.Expr_Stmt:
+			post_is_valid = true
+		}
+		if !post_is_valid {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "for-loop post clause must be a simple statement",
+				token   = syntax.Token{span = syntax.span_of_stmt(post_stmt)},
+			}
+		}
+
+		if current(p).kind != .Left_Brace {
+			return nil, Parser_Error {
+				kind    = .Unexpected_Token,
+				message = "expected '{' after the for-loop post statement",
+				token   = current(p),
+			}
+		}
+
+		block, block_err := parse_block(p)
+		if block_err != nil do return nil, block_err
+
+		stmt^ = syntax.For_Stmt {
+			keyword = keyword,
+			block   = block,
+			span    = syntax.span_join(keyword.span, syntax.span_of_stmt(block)),
+			variant = syntax.Traditional_For {
+				initializer = decl_stmt,
+				condition   = cond_expr,
+				post        = post_stmt,
+			}
+		}
+
+	} else {
+		condition, condition_err := parse_expr(p)
+		if condition_err != nil do return nil, condition_err
+
+		skip_trivia(p)
+
+		block, block_err := parse_block(p)
+		if block_err != nil do return nil, block_err
+
+		stmt^ = syntax.For_Stmt {
+			keyword = keyword,
+			block   = block,
+			span    = syntax.span_join(keyword.span, syntax.span_of_stmt(block)),
+			variant = syntax.Condition_For {
+				condition = condition,
+			},
+		}
+	}
+
+	return stmt, nil
+}
+
 parse_return :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	keyword := current(p)
 	advance(p) // consume `return`
@@ -221,8 +467,8 @@ parse_return :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 
 	stmt := new(syntax.Return_Stmt, allocator = p.allocator)
 	stmt.keyword = keyword
-	stmt.exprs = exprs
-	stmt.span = keyword.span
+	stmt.exprs   = exprs
+	stmt.span    = keyword.span
 	if len(exprs) > 0 {
 		stmt.span = syntax.span_join(keyword.span, syntax.span_of_expr(exprs[len(exprs) - 1]))
 	}
@@ -502,7 +748,7 @@ parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)
 
 	// Return(s)
 	return_type: Maybe([dynamic]syntax.Type)
-	if next, ok := next(p); ok && current(p).kind == .Minus && next.kind == .Greater {
+	if next, ok := peek(p); ok && current(p).kind == .Minus && next.kind == .Greater {
 		advance(p) // consume '-'
 		advance(p) // consume '>'
 		skip_trivia(p)
@@ -615,7 +861,7 @@ parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
 	end_span := params_close.span
 
 	returns := make([dynamic]syntax.Type, allocator = p.allocator)
-	if next, ok := next(p); ok && current(p).kind == .Minus && next.kind == .Greater {
+	if next, ok := peek(p); ok && current(p).kind == .Minus && next.kind == .Greater {
 		advance(p) // '-'
 		advance(p) // '>'
 		skip_trivia(p)
@@ -765,7 +1011,7 @@ parse_fn_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) 
 
 	awaited := false
 	end := close
-	next, ok := next(p)
+	next, ok := peek(p)
 	if ok && current(p).kind == .Dot && next.keyword == .Await {
 		advance(p) // '.'
 		end = current(p)
@@ -1067,7 +1313,7 @@ parse_primary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 		return result, nil
 
 	case .Ident:
-		if n, ok := next(p); ok && n.kind == .Left_Paren { 	// function call
+		if n, ok := peek(p); ok && n.kind == .Left_Paren { 	// function call
 			call, err := parse_fn_call(p)
 			if err != nil do return nil, err
 			result := new(syntax.Fn_Call_Expr, allocator = p.allocator)
@@ -1144,12 +1390,12 @@ advance :: proc(p: ^Parser) -> (syntax.Token, bool) {
 	}
 }
 
-next :: proc(p: ^Parser) -> (syntax.Token, bool) {
-	if p.current >= len(p.tokens) - 1 {
+peek :: proc(p: ^Parser, step := 1) -> (syntax.Token, bool) {
+	if p.current >= len(p.tokens) - step {
 		return {}, false
 	}
 
-	return p.tokens[p.current + 1], true
+	return p.tokens[p.current + step], true
 }
 
 is_at_end :: proc(p: ^Parser) -> bool {

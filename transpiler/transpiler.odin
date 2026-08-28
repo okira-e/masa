@@ -7,12 +7,14 @@ Transpiler :: struct {
 	source:         string,
 	output_builder: strings.Builder,
 	indent:         int,
+	next_range_id:  int,
 }
 
 init :: proc(t: ^Transpiler, source: string) {
 	t.source         = source
 	t.output_builder = strings.builder_make()
 	t.indent         = 0
+	t.next_range_id  = 0
 }
 
 destroy :: proc(t: ^Transpiler) {
@@ -78,6 +80,10 @@ emit_stmt :: proc(t: ^Transpiler, stmt: syntax.Stmt, do_indent := true) -> bool 
 		if do_indent do write_indent(t)
 		emit_if(t, s)
 
+	case ^syntax.For_Stmt:
+		if do_indent do write_indent(t)
+		emit_for(t, s)
+
 	case ^syntax.Block_Stmt:
 		if do_indent do write_indent(t)
 		emit_block(t, s)
@@ -99,6 +105,108 @@ emit_if :: proc(t: ^Transpiler, stmt: ^syntax.If_Stmt) {
 		strings.write_string(&t.output_builder, " else ")
 		emit_stmt(t, else_stmt, false)
 	}
+}
+
+emit_for :: proc(t: ^Transpiler, stmt: ^syntax.For_Stmt) {
+	emit_range_bound_name :: proc(t: ^Transpiler, id: int, bound: string) {
+		strings.write_string(&t.output_builder, "$range_")
+		strings.write_string(&t.output_builder, bound)
+		strings.write_byte(&t.output_builder, '_')
+		strings.write_int(&t.output_builder, id)
+	}
+
+	emit_for_clause_stmt :: proc(t: ^Transpiler, stmt: syntax.Stmt) {
+		#partial switch s in stmt {
+		case ^syntax.Expr_Stmt:
+			emit_expr(t, s.expr)
+
+		case ^syntax.Ident_Decl_Stmt:
+			emit_ident_declaration(t, s)
+
+		case ^syntax.Fn_Call_Stmt:
+			emit_fn_call(t, s)
+
+		case ^syntax.Ident_Assignment_Stmt:
+			emit_ident_assignment(t, s)
+		}
+	}
+
+	switch variant in stmt.variant {
+	case syntax.Condition_For:
+		strings.write_string(&t.output_builder, "while (")
+		emit_expr(t, variant.condition)
+		strings.write_string(&t.output_builder, ") ")
+
+	case syntax.Traditional_For:
+		strings.write_string(&t.output_builder, "for (")
+		emit_for_clause_stmt(t, variant.initializer)
+		strings.write_string(&t.output_builder, "; ")
+		emit_expr(t, variant.condition)
+		strings.write_string(&t.output_builder, "; ")
+		emit_for_clause_stmt(t, variant.post)
+		strings.write_string(&t.output_builder, ") ")
+
+	case syntax.Range_For:
+		range, has_range := variant.range.?
+		assert(has_range, "iterable for loops are not supported yet")
+
+		range_id := t.next_range_id
+		t.next_range_id += 1
+
+		strings.write_string(&t.output_builder, "{\n")
+		t.indent += 1
+
+		write_indent(t)
+		strings.write_string(&t.output_builder, "const ")
+		emit_range_bound_name(t, range_id, "lower")
+		strings.write_string(&t.output_builder, " = ")
+		emit_expr(t, range.lower)
+		strings.write_string(&t.output_builder, ";\n")
+
+		write_indent(t)
+		strings.write_string(&t.output_builder, "const ")
+		emit_range_bound_name(t, range_id, "upper")
+		strings.write_string(&t.output_builder, " = ")
+		emit_expr(t, range.upper)
+		strings.write_string(&t.output_builder, ";\n")
+
+		write_indent(t)
+		strings.write_string(&t.output_builder, "for (let ")
+		emit_ident_token(t, variant.capture_ident)
+		strings.write_string(&t.output_builder, " = ")
+		emit_range_bound_name(t, range_id, "lower")
+		if iterator, has_iterator := variant.iterator.?; has_iterator {
+			strings.write_string(&t.output_builder, ", ")
+			emit_ident_token(t, iterator)
+			strings.write_string(&t.output_builder, " = 0")
+		}
+		strings.write_string(&t.output_builder, "; ")
+		emit_ident_token(t, variant.capture_ident)
+		strings.write_string(&t.output_builder, " < ")
+		emit_range_bound_name(t, range_id, "upper")
+		strings.write_string(&t.output_builder, "; ")
+		emit_ident_token(t, variant.capture_ident)
+		strings.write_string(&t.output_builder, " = ")
+		emit_ident_token(t, variant.capture_ident)
+		strings.write_string(&t.output_builder, " + 1")
+		if iterator, has_iterator := variant.iterator.?; has_iterator {
+			strings.write_string(&t.output_builder, ", ")
+			emit_ident_token(t, iterator)
+			strings.write_string(&t.output_builder, " = ")
+			emit_ident_token(t, iterator)
+			strings.write_string(&t.output_builder, " + 1")
+		}
+		strings.write_string(&t.output_builder, ") ")
+		emit_stmt(t, stmt.block, false)
+
+		t.indent -= 1
+		strings.write_byte(&t.output_builder, '\n')
+		write_indent(t)
+		strings.write_byte(&t.output_builder, '}')
+		return
+	}
+
+	emit_stmt(t, stmt.block, false)
 }
 
 emit_ident_declaration :: proc(t: ^Transpiler, stmt: ^syntax.Ident_Decl_Stmt) {
@@ -455,15 +563,15 @@ write_indent :: proc(t: ^Transpiler) {
 
 js_binary_op :: proc(op: syntax.Token_Kind) -> string {
 	#partial switch op {
-	case .Plus: return "+"
-	case .Minus: return "-"
-	case .Star: return "*"
-	case .Slash: return "/"
-	case .Equal_Equal: return "==="
-	case .Bang_Equal: return "!=="
-	case .Less: return "<"
-	case .Less_Equal: return "<="
-	case .Greater: return ">"
+	case .Plus:          return "+"
+	case .Minus:         return "-"
+	case .Star:          return "*"
+	case .Slash:         return "/"
+	case .Equal_Equal:   return "==="
+	case .Bang_Equal:    return "!=="
+	case .Less:          return "<"
+	case .Less_Equal:    return "<="
+	case .Greater:       return ">"
 	case .Greater_Equal: return ">="
 	}
 	unreachable()
