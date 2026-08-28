@@ -1,9 +1,7 @@
 package parser
 
-import "../ast"
 import "../lexer"
 import "../syntax"
-import "core:log"
 import "core:mem"
 import "core:strings"
 import "core:testing"
@@ -538,13 +536,11 @@ test_basic_expressions :: proc(t: ^testing.T) {
 		defer mem.dynamic_arena_destroy(&arena)
 
 		if parser_err != nil {
-			log_ast(test.source, stmts[:])
 			testing.expectf(t, false, "%s: unexpected error: %v", test.name, parser_err)
 			testing.fail_now(t)
 		}
 
 		if len(stmts) != 1 {
-			log_ast(test.source, stmts[:])
 			testing.expectf(t, false, "%s: expected 1 statement, got %d", test.name, len(stmts))
 			testing.fail_now(t)
 		}
@@ -553,7 +549,6 @@ test_basic_expressions :: proc(t: ^testing.T) {
 
 		expected := test.expected
 		if !syntax.expr_eq(got, expected) {
-			log_ast(test.source, stmts[:])
 			testing.expectf(
 				t,
 				false,
@@ -2661,6 +2656,41 @@ test_call_expression_arguments :: proc(t: ^testing.T) {
 	expect_parse_ok(t, "x := id(id(1))") // nested call argument (expression position)
 }
 
+@(test)
+test_parser_error_messages_are_structured :: proc(t: ^testing.T) {
+	testing.expect(
+		t,
+		error_message(parser_error(.Empty_Tokens)) == "No tokens found",
+		"empty-token message mismatch",
+	)
+	testing.expect(
+		t,
+		error_message(parser_error(.Missing_EOF)) == "Missing EOF token at the end of the token list",
+		"missing-EOF message mismatch",
+	)
+
+	expect_parse_error_message(t, "for {}", "expected a loop condition after 'for'")
+	expect_parse_error_message(t, "a, := 1", "expected an identifier in the target list")
+	expect_parse_error_message(t, "a, b 1", "expected ':=', '::', ':', or '=' after the target list")
+	expect_parse_error_message(t, "foo :: fn value", "expected a '(' after 'fn' to declare a function")
+	expect_parse_error_message(
+		t,
+		"callback: fn(number",
+		"expected a ')' to end function type parameters",
+	)
+	expect_parse_error_message(t, "foo(1", "expected ')' to end function call arguments")
+	expect_parse_error_message(t, "{", "unexpected EOF while parsing block - missing '}'")
+	expect_parse_error_message(t, "!", "Unexpected \"EOF\" token while parsing unary")
+	expect_parse_error_message(t, "return else", "Unexpected keyword while parsing primary")
+	expect_parse_error_message(t, "1 2", "expected newline, '}', or end of input after statement")
+	expect_parse_error_message(t, "value: = 1", "expected a built-in or a user-defined type")
+	expect_parse_error_message(
+		t,
+		"a, b :: 1, fn() {}",
+		"a function definition must bind a single name; it cannot appear in a multi-name '::' declaration",
+	)
+}
+
 // Parses a single decl/assignment statement and returns its RHS expression list.
 @(private = "file")
 parse_single_rhs :: proc(
@@ -2705,6 +2735,45 @@ parse_single_rhs :: proc(
 
 	testing.expectf(t, false, "%s: expected a decl or assignment statement", source)
 	return nil, false
+}
+
+@(private = "file")
+expect_parse_error_message :: proc(
+	t: ^testing.T,
+	source: string,
+	expected: string,
+	loc := #caller_location,
+) {
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	if lexer_err != nil {
+		testing.expectf(t, false, "%q: unexpected lexer error: %v", source, lexer_err, loc = loc)
+		return
+	}
+
+	p: Parser
+	init(&p, tokens[:], arena_alloc)
+	_, parser_err := parse(&p)
+	err, ok := parser_err.?
+	testing.expectf(t, ok, "%q: expected parser error, got none", source, loc = loc)
+	if !ok do return
+
+	actual := error_message(err)
+	testing.expectf(
+		t,
+		actual == expected,
+		"%q: got message %q, want %q",
+		source,
+		actual,
+		expected,
+		loc = loc,
+	)
 }
 
 @(private = "file")
@@ -2867,16 +2936,4 @@ Test :: struct {
 	expected:     syntax.Expr,
 	should_error: bool,
 	error_kind:   Parser_Error_Kind,
-}
-
-@(private = "file")
-log_ast :: proc(source: string, stmts: []syntax.Stmt) {
-	for stmt, i in stmts {
-		builder := strings.builder_make()
-		defer strings.builder_destroy(&builder)
-
-		log.infof("Printing AST for stmt %d", i + 1)
-		ast.build_ast_from_stmt(&builder, source, stmt)
-		log.info(strings.to_string(builder))
-	}
 }

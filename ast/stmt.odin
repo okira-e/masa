@@ -3,6 +3,13 @@ package ast
 import "../syntax"
 import "core:strings"
 
+build_ast_from_stmts :: proc(b: ^strings.Builder, source: string, stmts: []syntax.Stmt) {
+	for stmt, index in stmts {
+		if index > 0 do strings.write_byte(b, '\n')
+		build_ast_from_stmt(b, source, stmt)
+	}
+}
+
 // @TODO: Make for a better output than the current one for printing the AST
 build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.Stmt) {
 	switch st in stmt {
@@ -10,13 +17,15 @@ build_ast_from_stmt :: proc(b: ^strings.Builder, source: string, stmt: syntax.St
 		build_ast_from_expr(b, source, st.expr)
 
 	case ^syntax.Ident_Decl_Stmt:
-		// @TODO: Print the full `x: number = 5` statement instead of just saying "(:= x 5)"
-		// Maybe it should be "(= (: x number) 5)"?
 		strings.write_byte(b, '(')
 		strings.write_string(b, st.constant ? "::" : ":=")
 		for name in st.names {
 			strings.write_byte(b, ' ')
 			strings.write_string(b, source[name.span.start:name.span.end])
+			if decl_type, has_type := st.type.?; has_type {
+				strings.write_byte(b, ':')
+				build_ast_from_type(b, source, decl_type)
+			}
 		}
 
 		value, ok := st.value.?

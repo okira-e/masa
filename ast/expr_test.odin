@@ -1,306 +1,271 @@
 package ast
 
-import "../syntax"
+import "../lexer"
+import "../parser"
+import "core:mem"
 import "core:strings"
 import "core:testing"
 
-@(test)
-test_build_ast_from_expr_smoke :: proc(t: ^testing.T) {
-	source := "1 + 2 * (3 - 4)"
-
-	ast := &syntax.Binary_Expr {
-		left  = &syntax.Literal_Expr {
-			token = syntax.Token {
-				kind = .Literal,
-				span = {start = 0, end = 1}, // "1"
-				line = 1,
-				column = 1,
-				literal_kind = .Number,
-			},
-		},
-		op    = .Plus,
-		right = &syntax.Binary_Expr {
-			left  = &syntax.Literal_Expr {
-				token = syntax.Token {
-					kind = .Literal,
-					span = {start = 4, end = 5}, // "2"
-					line = 1,
-					column = 5,
-					literal_kind = .Number,
-				},
-			},
-			op    = .Star,
-			right = &syntax.Grouping_Expr {
-				expr = &syntax.Binary_Expr {
-					left  = &syntax.Literal_Expr {
-						token = syntax.Token {
-							kind = .Literal,
-							span = {start = 9, end = 10}, // "3"
-							line = 1,
-							column = 10,
-							literal_kind = .Number,
-						},
-					},
-					op    = .Minus,
-					right = &syntax.Literal_Expr {
-						token = syntax.Token {
-							kind = .Literal,
-							span = {start = 13, end = 14}, // "4"
-							line = 1,
-							column = 14,
-							literal_kind = .Number,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	builder := strings.builder_make()
-	defer strings.builder_destroy(&builder)
-	build_ast_from_expr(&builder, source, ast)
-	out := strings.to_string(builder)
-
-	expected := "(+ 1 (* 2 (- 3 4)))"
-
-	if out != expected {
-		testing.expectf(t, false, "smoke test failed. expected: %s. got: %s", expected, out)
-		testing.fail_now(t)
-	}
+Ast_Case :: struct {
+	name:     string,
+	source:   string,
+	expected: string,
 }
 
 @(test)
-test_ast_printer_basic :: proc(t: ^testing.T) {
-	tests := []struct {
-		name:     string,
-		source:   string,
-		input:    syntax.Expr,
-		expected: string,
-	} {
+test_expression_ast_from_source :: proc(t: ^testing.T) {
+	tests := []Ast_Case {
+		{name = "number literal", source = "42", expected = "42"},
+		{name = "string literal", source = `"masa"`, expected = `"masa"`},
+		{name = "bool literal", source = "true", expected = "true"},
+		{name = "identifier", source = "value", expected = "value"},
+		{name = "unary minus", source = "-5", expected = "(- 5)"},
+		{name = "unary bang", source = "!false", expected = "(! false)"},
+		{name = "addition", source = "1 + 2", expected = "(+ 1 2)"},
+		{name = "subtraction", source = "1 - 2", expected = "(- 1 2)"},
+		{name = "multiplication", source = "1 * 2", expected = "(* 1 2)"},
+		{name = "division", source = "1 / 2", expected = "(/ 1 2)"},
+		{name = "equal", source = "1 == 2", expected = "(== 1 2)"},
+		{name = "not equal", source = "1 != 2", expected = "(!= 1 2)"},
+		{name = "less", source = "1 < 2", expected = "(< 1 2)"},
+		{name = "less equal", source = "1 <= 2", expected = "(<= 1 2)"},
+		{name = "greater", source = "1 > 2", expected = "(> 1 2)"},
+		{name = "greater equal", source = "1 >= 2", expected = "(>= 1 2)"},
+		{name = "logical and", source = "true and false", expected = "(and true false)"},
+		{name = "logical or", source = "true or false", expected = "(or true false)"},
 		{
-			name     = "literal expression",
-			source   = "42",
-			input    = &syntax.Literal_Expr {
-				token = syntax.Token {
-					kind = .Literal,
-					span = {start = 0, end = 2}, // "42"
-					line = 1,
-					column = 1,
-					literal_kind = .Number,
-				},
-			},
-			expected = "42",
+			name = "grouping and precedence",
+			source = "(1 + 2) * 3",
+			expected = "(* (+ 1 2) 3)",
 		},
 		{
-			name     = "unary expression",
-			source   = "-5",
-			input    = &syntax.Unary_Expr {
-				op    = .Minus,
-				right = &syntax.Literal_Expr {
-					token = syntax.Token {
-						kind = .Literal,
-						span = {start = 1, end = 2}, // "5"
-						line = 1,
-						column = 2,
-						literal_kind = .Number,
-					},
-				},
-			},
-			expected = "(- 5)",
+			name = "call expression",
+			source = "result := add(1, 2)",
+			expected = "(:= result (call add 1 2))",
 		},
 		{
-			name     = "grouping expression",
-			source   = "(5)",
-			input    = &syntax.Grouping_Expr {
-				expr = &syntax.Literal_Expr {
-					token = syntax.Token {
-						kind = .Literal,
-						span = {start = 1, end = 2}, // "5"
-						line = 1,
-						column = 2,
-						literal_kind = .Number,
-					},
-				},
-			},
-			expected = "5",
+			name = "awaited call expression",
+			source = "result := load(1).await",
+			expected = "(:= result (call await load 1))",
 		},
 		{
-			name     = "nested binary expression",
-			source   = "1 + 2 * 3",
-			input    = &syntax.Binary_Expr {
-				left  = &syntax.Literal_Expr {
-					token = syntax.Token {
-						kind = .Literal,
-						span = {start = 0, end = 1}, // "1"
-						line = 1,
-						column = 1,
-						literal_kind = .Number,
-					},
-				},
-				op    = .Plus,
-				right = &syntax.Binary_Expr {
-					left  = &syntax.Literal_Expr {
-						token = syntax.Token {
-							kind = .Literal,
-							span = {start = 4, end = 5}, // "2"
-							line = 1,
-							column = 5,
-							literal_kind = .Number,
-						},
-					},
-					op    = .Star,
-					right = &syntax.Literal_Expr {
-						token = syntax.Token {
-							kind = .Literal,
-							span = {start = 8, end = 9}, // "3"
-							line = 1,
-							column = 9,
-							literal_kind = .Number,
-						},
-					},
-				},
-			},
-			expected = "(+ 1 (* 2 3))",
+			name = "function literal",
+			source = "callback := fn(value: number) -> number { return value }",
+			expected = "(:= callback (fn (args value:number) (returns number) { (return value) }))",
+		},
+		{
+			name = "async function literal",
+			source = "callback := async fn() -> number { return 1 }",
+			expected = "(:= callback (fn async (args) (returns number) { (return 1) }))",
 		},
 	}
 
+	expect_ast_cases(t, tests)
+}
+
+@(test)
+test_statement_ast_from_source :: proc(t: ^testing.T) {
+	tests := []Ast_Case {
+		{name = "expression statement", source = "1 + 2", expected = "(+ 1 2)"},
+		{name = "mutable declaration", source = "value := 1", expected = "(:= value 1)"},
+		{name = "constant declaration", source = "answer :: 42", expected = "(:: answer 42)"},
+		{
+			name = "typed mutable declaration",
+			source = "value: number = 1",
+			expected = "(:= value:number 1)",
+		},
+		{
+			name = "typed constant declaration",
+			source = "answer: number : 42",
+			expected = "(:: answer:number 42)",
+		},
+		{
+			name = "bare typed declaration",
+			source = "value: number",
+			expected = "(:= value:number ---)",
+		},
+		{
+			name = "multi declaration",
+			source = "left, right: number = 1, 2",
+			expected = "(:= left:number right:number 1 2)",
+		},
+		{
+			name = "multi assignment",
+			source = "left, right = 1, 2",
+			expected = "(= left right 1 2)",
+		},
+		{name = "call statement", source = "run(1)", expected = "(call run 1)"},
+		{name = "awaited call statement", source = "run(1).await", expected = "(call await run 1)"},
+		{
+			name = "if else",
+			source = "if true { value := 1 } else { value := 2 }",
+			expected = "(if true { (:= value 1) } { (:= value 2) })",
+		},
+		{
+			name = "else if",
+			source = "if false { value := 1 } else if true { value := 2 }",
+			expected = "(if false { (:= value 1) } (if true { (:= value 2) }))",
+		},
+		{
+			name = "block",
+			source = "{ value := 1\nvalue = 2 }",
+			expected = "{ (:= value 1) (= value 2) }",
+		},
+		{name = "bare return", source = "return", expected = "(return)"},
+		{
+			name = "multi return",
+			source = `return 1, "one"`,
+			expected = `(return 1 "one")`,
+		},
+	}
+
+	expect_ast_cases(t, tests)
+}
+
+@(test)
+test_function_and_type_ast_from_source :: proc(t: ^testing.T) {
+	tests := []Ast_Case {
+		{
+			name = "named function",
+			source = "identity :: fn(value: number) -> number { return value }",
+			expected = "(fn identity (args value:number) (returns number) { (return value) })",
+		},
+		{
+			name = "async named function",
+			source = "load :: async fn(value: number) -> number { return value }",
+			expected = "(fn load async (args value:number) (returns number) { (return value) })",
+		},
+		{
+			name = "function stub",
+			source = "external :: fn(value: number) -> number",
+			expected = "(fn external (args value:number) (returns number))",
+		},
+		{
+			name = "function typed argument and return",
+			source = "apply :: fn(callback: fn(number) -> number) -> fn(number) -> number",
+			expected = "(fn apply (args callback:(fn (params number) (returns number))) (returns (fn (params number) (returns number))))",
+		},
+		{
+			name = "async function typed variable",
+			source = "callback: async fn(number) -> number",
+			expected = "(:= callback:(fn async (params number) (returns number)) ---)",
+		},
+		{
+			name = "multiple function return types",
+			source = "pair :: fn() -> (number, string) { return 1, \"one\" }",
+			expected = "(fn pair (args) (returns number string) { (return 1 \"one\") })",
+		},
+	}
+
+	expect_ast_cases(t, tests)
+}
+
+@(test)
+test_loop_ast_from_source :: proc(t: ^testing.T) {
+	tests := []Ast_Case {
+		{
+			name = "condition loop",
+			source = "for true {}",
+			expected = "(for true {  })",
+		},
+		{
+			name = "traditional loop",
+			source = "for i := 0; i < 2; i = i + 1 {}",
+			expected = "(for (:= i 0); (< i 2); (= i (+ i 1)) {  })",
+		},
+		{
+			name = "range loop",
+			source = "for value in 1..3 {}",
+			expected = "(for value in 1..3 {  })",
+		},
+		{
+			name = "range loop with iterator",
+			source = "for value, index in 1..3 {}",
+			expected = "(for value, index in 1..3 {  })",
+		},
+		{
+			name = "range loop with discarded iterator",
+			source = "for value, _ in 1..3 {}",
+			expected = "(for value in 1..3 {  })",
+		},
+	}
+
+	expect_ast_cases(t, tests)
+}
+
+@(test)
+test_program_ast_from_source :: proc(t: ^testing.T) {
+	source := `counter := 0
+for index := 0; index < 2; index = index + 1 {
+	counter = counter + index
+}
+if counter == 1 {
+	callback := fn(value: number) -> number { return value }
+	result := callback(counter)
+} else {
+	result := 0
+}`
+	expected := `(:= counter 0)
+(for (:= index 0); (< index 2); (= index (+ index 1)) { (= counter (+ counter index)) })
+(if (== counter 1) { (:= callback (fn (args value:number) (returns number) { (return value) })) (:= result (call callback counter)) } { (:= result 0) })`
+
+	actual, ok := render_source_ast(t, source)
+	if !ok do return
+	defer delete(actual)
+	testing.expectf(t, actual == expected, "program AST mismatch\nexpected: %s\nactual:   %s", expected, actual)
+}
+
+@(private = "file")
+expect_ast_cases :: proc(t: ^testing.T, tests: []Ast_Case) {
 	for test in tests {
-		ast := test.input
+		actual, ok := render_source_ast(t, test.source)
+		if !ok do continue
 
-		builder := strings.builder_make()
-		defer strings.builder_destroy(&builder)
-
-		build_ast_from_expr(&builder, test.source, ast)
-		out := strings.to_string(builder)
-
-		if out != test.expected {
-			testing.expectf(
-				t,
-				false,
-				"test %s failed. expected: %s. got: %s",
-				test.name,
-				test.expected,
-				out,
-			)
-			testing.fail_now(t)
-		}
+		testing.expectf(
+			t,
+			actual == test.expected,
+			"%s AST mismatch\nexpected: %s\nactual:   %s",
+			test.name,
+			test.expected,
+			actual,
+		)
+		delete(actual)
 	}
 }
 
-@(test)
-test_for_statement_ast :: proc(t: ^testing.T) {
-	source := "for true {}"
-	loop := &syntax.For_Stmt {
-		keyword = syntax.Token{kind = .Keyword, keyword = .For, span = {start = 0, end = 3}},
-		variant = syntax.Condition_For {
-			condition = &syntax.Literal_Expr {
-				token = syntax.Token{kind = .Literal, literal_kind = .Bool, span = {start = 4, end = 8}},
-				span = {start = 4, end = 8},
-			},
-		},
-		block = &syntax.Block_Stmt{stmts = []syntax.Stmt{}, span = {start = 9, end = 11}},
-		span  = {start = 0, end = 11},
+@(private = "file")
+render_source_ast :: proc(t: ^testing.T, source: string) -> (string, bool) {
+	arena: mem.Dynamic_Arena
+	mem.dynamic_arena_init(&arena)
+	defer mem.dynamic_arena_destroy(&arena)
+	arena_alloc := mem.dynamic_arena_allocator(&arena)
+
+	l: lexer.Lexer
+	lexer.init(&l, arena_alloc)
+	tokens, lexer_err := lexer.scan(&l, source)
+	defer delete(tokens)
+	if lexer_err != nil {
+		testing.expectf(t, false, "lexer failed for %q: %v", source, lexer_err)
+		return "", false
+	}
+
+	p: parser.Parser
+	parser.init(&p, tokens[:], arena_alloc)
+	stmts, parser_err := parser.parse(&p)
+	defer delete(stmts)
+	if parser_err != nil {
+		testing.expectf(t, false, "parser failed for %q: %v", source, parser_err)
+		return "", false
 	}
 
 	builder := strings.builder_make()
 	defer strings.builder_destroy(&builder)
-	build_ast_from_stmt(&builder, source, loop)
-	actual := strings.to_string(builder)
-	testing.expectf(t, actual == "(for true {  })", "got %q", actual)
+	build_ast_from_stmts(&builder, source, stmts[:])
 
-	source = "for i := 0; i < 1; i = i + 1 {}"
-	init_names := make([dynamic]syntax.Token)
-	defer delete(init_names)
-	append(&init_names, syntax.Token{kind = .Ident, span = {start = 4, end = 5}})
-	init_values := make([dynamic]syntax.Expr)
-	defer delete(init_values)
-	append(&init_values, &syntax.Literal_Expr {
-		token = syntax.Token{kind = .Literal, literal_kind = .Number, span = {start = 9, end = 10}},
-		span = {start = 9, end = 10},
-	})
-	initializer := &syntax.Ident_Decl_Stmt {
-		names = init_names,
-		value = init_values,
-		span = {start = 4, end = 10},
+	result, clone_err := strings.clone(strings.to_string(builder))
+	if clone_err != nil {
+		testing.expectf(t, false, "failed to clone AST output for %q: %v", source, clone_err)
+		return "", false
 	}
-
-	condition := &syntax.Binary_Expr {
-		left = &syntax.Ident_Expr {
-			token = syntax.Token{kind = .Ident, span = {start = 12, end = 13}},
-			span = {start = 12, end = 13},
-		},
-		op = .Less,
-		right = &syntax.Literal_Expr {
-			token = syntax.Token{kind = .Literal, literal_kind = .Number, span = {start = 16, end = 17}},
-			span = {start = 16, end = 17},
-		},
-		span = {start = 12, end = 17},
-	}
-
-	post_names := make([dynamic]syntax.Token)
-	defer delete(post_names)
-	append(&post_names, syntax.Token{kind = .Ident, span = {start = 19, end = 20}})
-	post_values := make([dynamic]syntax.Expr)
-	defer delete(post_values)
-	append(&post_values, &syntax.Binary_Expr {
-		left = &syntax.Ident_Expr {
-			token = syntax.Token{kind = .Ident, span = {start = 23, end = 24}},
-			span = {start = 23, end = 24},
-		},
-		op = .Plus,
-		right = &syntax.Literal_Expr {
-			token = syntax.Token{kind = .Literal, literal_kind = .Number, span = {start = 27, end = 28}},
-			span = {start = 27, end = 28},
-		},
-		span = {start = 23, end = 28},
-	})
-	post := &syntax.Ident_Assignment_Stmt {
-		names = post_names,
-		values = post_values,
-		span = {start = 19, end = 28},
-	}
-	initializer_stmt: syntax.Stmt = initializer
-	post_stmt: syntax.Stmt = post
-
-	loop = &syntax.For_Stmt {
-		keyword = syntax.Token{kind = .Keyword, keyword = .For, span = {start = 0, end = 3}},
-		variant = syntax.Traditional_For {
-			initializer = initializer_stmt,
-			condition = condition,
-			post = post_stmt,
-		},
-		block = &syntax.Block_Stmt{stmts = []syntax.Stmt{}, span = {start = 29, end = 31}},
-		span  = {start = 0, end = 31},
-	}
-
-	strings.builder_reset(&builder)
-	build_ast_from_stmt(&builder, source, loop)
-	actual = strings.to_string(builder)
-	testing.expectf(t, actual == "(for (:= i 0); (< i 1); (= i (+ i 1)) {  })", "got %q", actual)
-
-	source = "for val, i in 2..5 {}"
-	loop = &syntax.For_Stmt {
-		keyword = syntax.Token{kind = .Keyword, keyword = .For, span = {start = 0, end = 3}},
-		variant = syntax.Range_For {
-			capture_ident = syntax.Token{kind = .Ident, span = {start = 4, end = 7}},
-			iterator = syntax.Token{kind = .Ident, span = {start = 9, end = 10}},
-			range = syntax.Range {
-				lower = &syntax.Literal_Expr {
-					token = syntax.Token{kind = .Literal, literal_kind = .Number, span = {start = 14, end = 15}},
-					span = {start = 14, end = 15},
-				},
-				upper = &syntax.Literal_Expr {
-					token = syntax.Token{kind = .Literal, literal_kind = .Number, span = {start = 17, end = 18}},
-					span = {start = 17, end = 18},
-				},
-			},
-		},
-		block = &syntax.Block_Stmt{stmts = []syntax.Stmt{}, span = {start = 19, end = 21}},
-		span  = {start = 0, end = 21},
-	}
-
-	strings.builder_reset(&builder)
-	build_ast_from_stmt(&builder, source, loop)
-	actual = strings.to_string(builder)
-	testing.expectf(t, actual == "(for val, i in 2..5 {  })", "got %q", actual)
+	return result, true
 }

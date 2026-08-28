@@ -158,9 +158,7 @@ print_metrics :: proc(loc: int, lexing_duration, parsing_duration, analyzing_dur
 @(private = "file")
 print_ast :: proc(stmts: []syntax.Stmt, source: string) {
 	builder := strings.builder_make()
-	for stmt in stmts {
-		ast.build_ast_from_stmt(&builder, source, stmt)
-	}
+	ast.build_ast_from_stmts(&builder, source, stmts)
 	out := strings.to_string(builder)
 	defer delete(out)
 	fmt.println(out)

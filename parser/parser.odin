@@ -63,14 +63,11 @@ init :: proc(p: ^Parser, tokens: []syntax.Token, allocator := context.allocator)
 
 parse :: proc(p: ^Parser) -> ([dynamic]syntax.Stmt, Maybe(Parser_Error)) {
 	if len(p.tokens) == 0 {
-		return nil, Parser_Error{kind = .Empty_Tokens, message = "No tokens found"}
+		return nil, parser_error(.Empty_Tokens)
 	}
 
 	if p.tokens[len(p.tokens) - 1].kind != .EOF {
-		return nil, Parser_Error {
-			kind = .Missing_EOF,
-			message = "Missing EOF token at the end of the token list",
-		}
+		return nil, parser_error(.Missing_EOF)
 	}
 
 	// worst case: assume one statement per token
@@ -154,18 +151,14 @@ parse_keyword :: proc(p: ^Parser, token: syntax.Token) -> (syntax.Stmt, Maybe(Pa
 		return parse_return(p)
 
 	case .Else:
-		return nil, Parser_Error {
-			kind = .Else_With_No_If,
-			message = "'else' has no matching 'if' - it must follow '}' on the same line",
-			token = token,
-		}
+		return nil, parser_error(.Else_With_No_If, token.span)
 	}
 
-	return nil, Parser_Error {
-		kind = .Unexpected_Token,
-		message = "keyword cannot start a statement",
-		token = token,
-	}
+	return nil, parser_error(
+		.Unexpected_Token,
+		token.span,
+		Unexpected_Token_Error_Data{reason = .Keyword_Cannot_Start_Statement},
+	)
 }
 
 parse_if :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
@@ -220,11 +213,11 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	skip_trivia(p)
 
 	if current(p).kind == .Left_Brace {
-		return nil, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected a loop condition after 'for'",
-			token   = current(p),
-		}
+		return nil, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Missing_For_Condition},
+		)
 	}
 
 	stmt := new(syntax.For_Stmt, allocator = p.allocator)
@@ -292,11 +285,11 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 
 			if current(p).kind != .Underscore {
 				if current(p).kind != .Ident {
-					return nil, Parser_Error {
-						kind    = .Unexpected_Token,
-						message = "expected an identifier or '_' after ',' in range loop",
-						token   = current(p),
-					}
+					return nil, parser_error(
+						.Unexpected_Token,
+						current(p).span,
+						Unexpected_Token_Error_Data{reason = .Expected_Range_Iterator},
+					)
 				}
 
 				iterator = current(p)
@@ -307,11 +300,11 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 		}
 
 		if current(p).kind != .Keyword || current(p).keyword != .In {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected 'in' after range loop captures",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_In_After_Range_Captures},
+			)
 		}
 
 		advance(p) // in
@@ -320,11 +313,11 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 		if lower_expr_err != nil do return nil, lower_expr_err
 
 		if current(p).kind != .Spread_Op {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected '..' after the lower range bound",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Range_Operator},
+			)
 		}
 		advance(p) // '..'
 
@@ -362,19 +355,19 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 			initializer_is_valid = true
 		}
 		if !initializer_is_valid {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "for-loop initializer must be a mutable declaration or simple statement",
-				token   = syntax.Token{span = syntax.span_of_stmt(decl_stmt)},
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				syntax.span_of_stmt(decl_stmt),
+				Unexpected_Token_Error_Data{reason = .Invalid_For_Initializer},
+			)
 		}
 
 		if current(p).kind != .Semicolon {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected ';' after the for-loop initializer",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Semicolon_After_For_Initializer},
+			)
 		}
 		advance(p) // ;
 		skip_trivia(p)
@@ -383,11 +376,11 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 		if cond_expr_err != nil do return nil, cond_expr_err
 
 		if current(p).kind != .Semicolon {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected ';' after the for-loop condition",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Semicolon_After_For_Condition},
+			)
 		}
 		advance(p) // ;
 		skip_trivia(p)
@@ -401,19 +394,19 @@ parse_for :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 			post_is_valid = true
 		}
 		if !post_is_valid {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "for-loop post clause must be a simple statement",
-				token   = syntax.Token{span = syntax.span_of_stmt(post_stmt)},
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				syntax.span_of_stmt(post_stmt),
+				Unexpected_Token_Error_Data{reason = .Invalid_For_Post},
+			)
 		}
 
 		if current(p).kind != .Left_Brace {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected '{' after the for-loop post statement",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Block_After_For_Post},
+			)
 		}
 
 		block, block_err := parse_block(p)
@@ -528,11 +521,11 @@ parse_multi_target :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 
 	for {
 		if current(p).kind != .Ident {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected an identifier in the target list",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Target_Name},
+			)
 		}
 		append(&names, current(p))
 		advance(p) // the identifier
@@ -550,11 +543,11 @@ parse_multi_target :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 		return parse_ident_assignment(p, names)
 
 	case:
-		return nil, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected ':=', '::', ':', or '=' after the target list",
-			token   = current(p),
-		}
+		return nil, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Target_Operator},
+		)
 	}
 }
 
@@ -651,11 +644,11 @@ parse_decl :: proc(p: ^Parser, names: [dynamic]syntax.Token) -> (syntax.Stmt, Ma
 		stmt = decl_stmt
 
 	case:
-		return nil, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected ':=', '::', or ':' after identifier in declaration",
-			token   = current(p),
-		}
+		return nil, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Declaration_Operator},
+		)
 	}
 
 	return stmt, nil
@@ -704,21 +697,21 @@ parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)
 	}
 
 	if !(current(p).kind == .Keyword && current(p).keyword == .Fn) {
-		return {}, Parser_Error{
-			kind    = .Unexpected_Token,
-			message = "expected 'fn' to begin a function literal",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Fn_Literal_Keyword},
+		)
 	}
 	advance(p) // consume 'fn'
 	skip_trivia(p)
 
 	if current(p).kind != .Left_Paren {
-		return {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected a '(' after 'fn' to declare a function",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Fn_Declaration_Open_Paren},
+		)
 	}
 
 	advance(p) // consume '('
@@ -735,11 +728,11 @@ parse_fn_lit :: proc(p: ^Parser) -> (syntax.Fn_Literal_Expr, Maybe(Parser_Error)
 
 	// Should close the parenthesis after arguments
 	if current(p).kind != .Right_Paren {
-		return {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected a ')' to end function arguments",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Fn_Declaration_Close_Paren},
+		)
 	}
 
 	params_close := current(p)
@@ -794,11 +787,7 @@ parse_type :: proc(p: ^Parser) -> (syntax.Type, Maybe(Parser_Error)) {
 		return syntax.Type{variant = tok, span = tok.span}, nil
 	}
 
-	return {}, Parser_Error {
-		kind    = .Incorrect_Type_Expr,
-		message = "expected a built-in or a user-defined type",
-		token   = current(p),
-	}
+	return {}, parser_error(.Incorrect_Type_Expr, current(p).span)
 }
 
 // Similar to parse_fn_lit but no body and no arg names
@@ -812,21 +801,21 @@ parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
 	}
 
 	if !(current(p).kind == .Keyword && current(p).keyword == .Fn) {
-		return {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected 'fn' to begin a function type",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Fn_Type_Keyword},
+		)
 	}
 	advance(p) // 'fn'
 	skip_trivia(p)
 
 	if current(p).kind != .Left_Paren {
-		return {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected a '(' after 'fn' in a function type",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Fn_Type_Open_Paren},
+		)
 	}
 	advance(p) // '('
 
@@ -850,11 +839,11 @@ parse_fn_type :: proc(p: ^Parser) -> (syntax.Fn_Type, Maybe(Parser_Error)) {
 
 	skip_trivia(p)
 	if current(p).kind != .Right_Paren {
-		return {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected a ')' to end function type parameters",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Fn_Type_Close_Paren},
+		)
 	}
 	params_close := current(p)
 	advance(p) // ')'
@@ -915,11 +904,11 @@ parse_returns :: proc(p: ^Parser) -> (Maybe([dynamic]syntax.Type), syntax.Span, 
 
 	skip_trivia(p)
 	if current(p).kind != .Right_Paren {
-		return nil, {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected a ')' to end function return types",
-			token   = current(p),
-		}
+		return nil, {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Return_Type_Close_Paren},
+		)
 	}
 	close := current(p)
 	advance(p) // consume ')'
@@ -937,21 +926,21 @@ parse_arg :: proc(p: ^Parser, separator: syntax.Token_Kind) -> ([dynamic]syntax.
 		}
 
 		if current(p).kind != .Ident {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected argument to start with a name",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Argument_Name},
+			)
 		}
 		arg_name := current(p)
 		advance(p) // the arg name
 
 		if current(p).kind != .Colon {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "expected ':' after argument name",
-				token   = current(p),
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				current(p).span,
+				Unexpected_Token_Error_Data{reason = .Expected_Argument_Colon},
+			)
 		}
 		advance(p) // ':'
 
@@ -1000,11 +989,11 @@ parse_fn_call :: proc(p: ^Parser) -> (syntax.Fn_Call_Expr, Maybe(Parser_Error)) 
 	}
 
 	if current(p).kind != .Right_Paren {
-		return {}, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected ')' to end function call arguments",
-			token   = current(p),
-		}
+		return {}, parser_error(
+			.Unexpected_Token,
+			current(p).span,
+			Unexpected_Token_Error_Data{reason = .Expected_Call_Close_Paren},
+		)
 	}
 	close := current(p)
 	advance(p) // ')'
@@ -1043,11 +1032,11 @@ parse_fn_call_stmt :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 parse_block :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 	open := current(p)
 	if open.kind != .Left_Brace {
-		return nil, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "expected '{' to start block",
-			token   = open,
-		}
+		return nil, parser_error(
+			.Unexpected_Token,
+			open.span,
+			Unexpected_Token_Error_Data{reason = .Expected_Block_Open},
+		)
 	}
 	advance(p)
 
@@ -1066,11 +1055,11 @@ parse_block :: proc(p: ^Parser) -> (syntax.Stmt, Maybe(Parser_Error)) {
 			return stmt, nil
 		}
 		if tok.kind == .EOF {
-			return nil, Parser_Error {
-				kind = .Unexpected_EOF,
-				message = "unexpected EOF while parsing block - missing '}'",
-				token = tok,
-			}
+			return nil, parser_error(
+				.Unexpected_EOF,
+				tok.span,
+				Unexpected_EOF_Error_Data{ctx = .Block},
+			)
 		}
 
 		s, err := parse_stmt(p)
@@ -1269,11 +1258,11 @@ parse_factor :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 parse_unary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 	current_token := current(p)
 	if current_token.kind == .EOF {
-		return nil, Parser_Error {
-			kind = .Unexpected_EOF,
-			message = "Unexpected \"EOF\" token while parsing unary",
-			token = p.tokens[max(p.current - 1, 0)],
-		}
+		return nil, parser_error(
+			.Unexpected_EOF,
+			p.tokens[max(p.current - 1, 0)].span,
+			Unexpected_EOF_Error_Data{ctx = .Unary},
+		)
 	}
 
 	if matches(current_token.kind, .Bang, .Minus) {
@@ -1298,11 +1287,11 @@ parse_unary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 parse_primary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 	tok := current(p)
 	if tok.kind == .EOF {
-		return nil, Parser_Error {
-			kind    = .Unexpected_EOF,
-			message = "Unexpected \"EOF\" token while parsing primary",
-			token   = p.tokens[max(p.current - 1, 0)],
-		}
+		return nil, parser_error(
+			.Unexpected_EOF,
+			p.tokens[max(p.current - 1, 0)].span,
+			Unexpected_EOF_Error_Data{ctx = .Primary},
+		)
 	}
 
 	#partial switch tok.kind {
@@ -1334,11 +1323,7 @@ parse_primary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 
 		close := current(p)
 		if close.kind == .EOF || close.kind != .Right_Paren {
-			return nil, Parser_Error {
-				kind    = .Unclosed_Paren,
-				message = "Expected a \")\" token",
-				token   = close,
-			}
+			return nil, parser_error(.Unclosed_Paren, close.span)
 		}
 
 		advance(p)
@@ -1352,11 +1337,11 @@ parse_primary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 
 	case .Keyword:
 		if !is_fn_keyword(tok) {
-			return nil, Parser_Error {
-				kind    = .Unexpected_Token,
-				message = "Unexpected keyword while parsing primary",
-				token   = tok,
-			}
+			return nil, parser_error(
+				.Unexpected_Token,
+				tok.span,
+				Unexpected_Token_Error_Data{reason = .Keyword_In_Expression},
+			)
 		}
 
 		// Anonymous function literal
@@ -1368,11 +1353,11 @@ parse_primary :: proc(p: ^Parser) -> (syntax.Expr, Maybe(Parser_Error)) {
 		return result, nil
 
 	case:
-		return nil, Parser_Error {
-			kind    = .Unexpected_Token,
-			message = "Unexpected token while parsing primary",
-			token   = tok,
-		}
+		return nil, parser_error(
+			.Unexpected_Token,
+			tok.span,
+			Unexpected_Token_Error_Data{reason = .Token_In_Expression},
+		)
 
 	}
 
@@ -1438,11 +1423,7 @@ expect_terminator :: proc(p: ^Parser) -> Maybe(Parser_Error) {
 		return nil
 	}
 
-	return Parser_Error {
-		kind = .Missing_Terminator,
-		message = "expected newline, '}', or end of input after statement",
-		token = tok,
-	}
+	return parser_error(.Missing_Terminator, tok.span)
 }
 
 // Reports whether the token begins a function literal: `fn` or `async`.
@@ -1461,11 +1442,10 @@ is_fn_keyword :: proc(token: syntax.Token) -> bool {
 reject_fn_literals :: proc(exprs: [dynamic]syntax.Expr) -> Maybe(Parser_Error) {
 	for expr in exprs {
 		if _, ok := expr.(^syntax.Fn_Literal_Expr); ok {
-			return Parser_Error {
-				kind    = .Fn_In_Multi_Decl,
-				message = "a function definition must bind a single name; it cannot appear in a multi-name '::' declaration",
-				token   = syntax.Token{span = syntax.span_of_expr(expr)},
-			}
+			return parser_error(
+				.Fn_In_Multi_Decl,
+				syntax.span_of_expr(expr),
+			)
 		}
 	}
 
@@ -1474,9 +1454,61 @@ reject_fn_literals :: proc(exprs: [dynamic]syntax.Expr) -> Maybe(Parser_Error) {
 
 
 Parser_Error :: struct {
-	kind:    Parser_Error_Kind,
-	token:   syntax.Token,
-	message: string,
+	kind: Parser_Error_Kind,
+	span: syntax.Span,
+	data: Maybe(Parser_Error_Data),
+}
+
+Parser_Error_Data :: struct {
+	value: Parser_Error_Data_Value,
+}
+
+Parser_Error_Data_Value :: union {
+	Unexpected_Token_Error_Data,
+	Unexpected_EOF_Error_Data,
+}
+
+Unexpected_Token_Error_Data :: struct {
+	reason: Unexpected_Token_Reason,
+}
+
+Unexpected_Token_Reason :: enum u8 {
+	Keyword_Cannot_Start_Statement,
+	Missing_For_Condition,
+	Expected_Range_Iterator,
+	Expected_In_After_Range_Captures,
+	Expected_Range_Operator,
+	Invalid_For_Initializer,
+	Expected_Semicolon_After_For_Initializer,
+	Expected_Semicolon_After_For_Condition,
+	Invalid_For_Post,
+	Expected_Block_After_For_Post,
+	Expected_Target_Name,
+	Expected_Target_Operator,
+	Expected_Declaration_Operator,
+	Expected_Fn_Literal_Keyword,
+	Expected_Fn_Declaration_Open_Paren,
+	Expected_Fn_Declaration_Close_Paren,
+	Expected_Fn_Type_Keyword,
+	Expected_Fn_Type_Open_Paren,
+	Expected_Fn_Type_Close_Paren,
+	Expected_Return_Type_Close_Paren,
+	Expected_Argument_Name,
+	Expected_Argument_Colon,
+	Expected_Call_Close_Paren,
+	Expected_Block_Open,
+	Keyword_In_Expression,
+	Token_In_Expression,
+}
+
+Unexpected_EOF_Error_Data :: struct {
+	ctx: Unexpected_EOF_Context,
+}
+
+Unexpected_EOF_Context :: enum u8 {
+	Block,
+	Unary,
+	Primary,
 }
 
 Parser_Error_Kind :: enum u8 {
@@ -1489,6 +1521,125 @@ Parser_Error_Kind :: enum u8 {
 	Missing_Terminator,
 	Incorrect_Type_Expr,
 	Fn_In_Multi_Decl,
+}
+
+parser_error :: proc {
+	parser_error_without_data,
+	parser_error_with_data,
+}
+
+parser_error_without_data :: proc(
+	kind: Parser_Error_Kind,
+	span := syntax.Span{},
+) -> Parser_Error {
+	return Parser_Error{kind = kind, span = span}
+}
+
+parser_error_with_data :: proc(
+	kind: Parser_Error_Kind,
+	span: syntax.Span,
+	value: $T,
+) -> Parser_Error {
+	data := Parser_Error_Data{value = value}
+	return Parser_Error{kind = kind, span = span, data = data}
+}
+
+error_message :: proc(err: Parser_Error) -> string {
+	switch err.kind {
+	case .Empty_Tokens:
+		return "No tokens found"
+
+	case .Missing_EOF:
+		return "Missing EOF token at the end of the token list"
+
+	case .Unexpected_EOF:
+		data, ok := err.data.?
+		assert(ok)
+		eof_data, is_eof := data.value.(Unexpected_EOF_Error_Data)
+		assert(is_eof)
+		switch eof_data.ctx {
+		case .Block:   return "unexpected EOF while parsing block - missing '}'"
+		case .Unary:   return "Unexpected \"EOF\" token while parsing unary"
+		case .Primary: return "Unexpected \"EOF\" token while parsing primary"
+		}
+
+	case .Unclosed_Paren:
+		return "Expected a \")\" token"
+
+	case .Unexpected_Token:
+		data, ok := err.data.?
+		assert(ok)
+		unexpected_data, is_unexpected := data.value.(Unexpected_Token_Error_Data)
+		assert(is_unexpected)
+		switch unexpected_data.reason {
+		case .Keyword_Cannot_Start_Statement:
+			return "keyword cannot start a statement"
+		case .Missing_For_Condition:
+			return "expected a loop condition after 'for'"
+		case .Expected_Range_Iterator:
+			return "expected an identifier or '_' after ',' in range loop"
+		case .Expected_In_After_Range_Captures:
+			return "expected 'in' after range loop captures"
+		case .Expected_Range_Operator:
+			return "expected '..' after the lower range bound"
+		case .Invalid_For_Initializer:
+			return "for-loop initializer must be a mutable declaration or simple statement"
+		case .Expected_Semicolon_After_For_Initializer:
+			return "expected ';' after the for-loop initializer"
+		case .Expected_Semicolon_After_For_Condition:
+			return "expected ';' after the for-loop condition"
+		case .Invalid_For_Post:
+			return "for-loop post clause must be a simple statement"
+		case .Expected_Block_After_For_Post:
+			return "expected '{' after the for-loop post statement"
+		case .Expected_Target_Name:
+			return "expected an identifier in the target list"
+		case .Expected_Target_Operator:
+			return "expected ':=', '::', ':', or '=' after the target list"
+		case .Expected_Declaration_Operator:
+			return "expected ':=', '::', or ':' after identifier in declaration"
+		case .Expected_Fn_Literal_Keyword:
+			return "expected 'fn' to begin a function literal"
+		case .Expected_Fn_Declaration_Open_Paren:
+			return "expected a '(' after 'fn' to declare a function"
+		case .Expected_Fn_Declaration_Close_Paren:
+			return "expected a ')' to end function arguments"
+		case .Expected_Fn_Type_Keyword:
+			return "expected 'fn' to begin a function type"
+		case .Expected_Fn_Type_Open_Paren:
+			return "expected a '(' after 'fn' in a function type"
+		case .Expected_Fn_Type_Close_Paren:
+			return "expected a ')' to end function type parameters"
+		case .Expected_Return_Type_Close_Paren:
+			return "expected a ')' to end function return types"
+		case .Expected_Argument_Name:
+			return "expected argument to start with a name"
+		case .Expected_Argument_Colon:
+			return "expected ':' after argument name"
+		case .Expected_Call_Close_Paren:
+			return "expected ')' to end function call arguments"
+		case .Expected_Block_Open:
+			return "expected '{' to start block"
+		case .Keyword_In_Expression:
+			return "Unexpected keyword while parsing primary"
+		case .Token_In_Expression:
+			return "Unexpected token while parsing primary"
+		}
+
+	case .Else_With_No_If:
+		return "'else' has no matching 'if' - it must follow '}' on the same line"
+
+	case .Missing_Terminator:
+		return "expected newline, '}', or end of input after statement"
+
+	case .Incorrect_Type_Expr:
+		return "expected a built-in or a user-defined type"
+
+	case .Fn_In_Multi_Decl:
+		return "a function definition must bind a single name; it cannot appear in a multi-name '::' declaration"
+	}
+
+	unreachable()
 }
 
 @(private)
@@ -1517,12 +1668,13 @@ error_hint :: proc(kind: Parser_Error_Kind) -> Maybe(string) {
 }
 
 format_error :: proc(err: Parser_Error, source: string, allocator := context.allocator) -> string {
+	message := error_message(err)
 	if err.kind == .Empty_Tokens || err.kind == .Missing_EOF {
-		return fmt.aprintf("error: %s\n", err.message, allocator = allocator)
+		return fmt.aprintf("error: %s\n", message, allocator = allocator)
 	}
 
-	start := clamp(err.token.span.start, 0, len(source))
-	end := clamp(err.token.span.end, start, len(source))
+	start := clamp(err.span.start, 0, len(source))
+	end := clamp(err.span.end, start, len(source))
 
 	line_start := 0
 	for i := start - 1; i >= 0; i -= 1 {
@@ -1555,7 +1707,7 @@ format_error :: proc(err: Parser_Error, source: string, allocator := context.all
 	b: strings.Builder
 	strings.builder_init(&b, allocator)
 
-	fmt.sbprintf(&b, "error: %s\n", err.message)
+	fmt.sbprintf(&b, "error: %s\n", message)
 	fmt.sbprintf(&b, "  --> line %d, column %d\n", line_no, column)
 
 	gutter_str := fmt.tprintf("%d", line_no)

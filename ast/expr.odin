@@ -10,72 +10,64 @@ import "core:strings"
 build_ast_from_expr :: proc(b: ^strings.Builder, source: string, expr: syntax.Expr) {
 	switch expr in expr {
 	case ^syntax.Literal_Expr:
-		{
-			lexeme := "---"
-			if source != "" {
-				lexeme = get_lexeme_from_source(source, expr.token.span.start, expr.token.span.end)
-			}
-			strings.write_string(b, lexeme)
+		lexeme := "---"
+		if source != "" {
+			lexeme = get_lexeme_from_source(source, expr.token.span.start, expr.token.span.end)
 		}
+		strings.write_string(b, lexeme)
+
 	case ^syntax.Unary_Expr:
-		{
-			strings.write_byte(b, '(')
-			strings.write_string(b, get_string_for_op(expr.op))
-			strings.write_byte(b, ' ')
-			build_ast_from_expr(b, source, expr.right)
-			strings.write_byte(b, ')')
-		}
+		strings.write_byte(b, '(')
+		strings.write_string(b, get_string_for_op(expr.op))
+		strings.write_byte(b, ' ')
+		build_ast_from_expr(b, source, expr.right)
+		strings.write_byte(b, ')')
+
 	case ^syntax.Binary_Expr:
-		{
-			strings.write_byte(b, '(')
-			strings.write_string(b, get_string_for_op(expr.op))
-			strings.write_byte(b, ' ')
-			build_ast_from_expr(b, source, expr.left)
-			strings.write_byte(b, ' ')
-			build_ast_from_expr(b, source, expr.right)
-			strings.write_byte(b, ')')
-		}
+		strings.write_byte(b, '(')
+		strings.write_string(b, get_string_for_op(expr.op))
+		strings.write_byte(b, ' ')
+		build_ast_from_expr(b, source, expr.left)
+		strings.write_byte(b, ' ')
+		build_ast_from_expr(b, source, expr.right)
+		strings.write_byte(b, ')')
+
 	case ^syntax.Grouping_Expr:
-		{
-			// Precedence presentation by grouping things in parenthesis is already
-			// encoded in the ast by nesting. We don't need really need to add parenthesis
-			// or do anything.
-			build_ast_from_expr(b, source, expr.expr)
-		}
+		// Precedence presentation by grouping things in parenthesis is already
+		// encoded in the ast by nesting. We don't need really need to add parenthesis
+		// or do anything.
+		build_ast_from_expr(b, source, expr.expr)
+
 	case ^syntax.Ident_Expr:
-		{
-			lexeme := get_lexeme_from_source(source, expr.token.span.start, expr.token.span.end)
-			strings.write_string(b, lexeme)
-		}
+		lexeme := get_lexeme_from_source(source, expr.token.span.start, expr.token.span.end)
+		strings.write_string(b, lexeme)
+
 	case ^syntax.Logical_Expr:
-		{
-			strings.write_byte(b, '(')
-			strings.write_string(b, expr.op == .And ? "and" : "or")
-			strings.write_byte(b, ' ')
-			build_ast_from_expr(b, source, expr.left)
-			strings.write_byte(b, ' ')
-			build_ast_from_expr(b, source, expr.right)
-			strings.write_byte(b, ')')
-		}
+		strings.write_byte(b, '(')
+		strings.write_string(b, expr.op == .And ? "and" : "or")
+		strings.write_byte(b, ' ')
+		build_ast_from_expr(b, source, expr.left)
+		strings.write_byte(b, ' ')
+		build_ast_from_expr(b, source, expr.right)
+		strings.write_byte(b, ')')
+
 	case ^syntax.Fn_Call_Expr:
-		{
-			strings.write_string(b, "(call ")
-			strings.write_string(
-				b,
-				get_lexeme_from_source(source, expr.name.span.start, expr.name.span.end),
-			)
-			for arg in expr.args {
-				strings.write_byte(b, ' ')
-				build_ast_from_expr(b, source, arg)
-			}
-			strings.write_byte(b, ')')
+		strings.write_string(b, "(call ")
+		if expr.awaited do strings.write_string(b, "await ")
+		strings.write_string(
+			b,
+			get_lexeme_from_source(source, expr.name.span.start, expr.name.span.end),
+		)
+		for arg in expr.args {
+			strings.write_byte(b, ' ')
+			build_ast_from_expr(b, source, arg)
 		}
+		strings.write_byte(b, ')')
+
 	case ^syntax.Fn_Literal_Expr:
-		{
-			strings.write_string(b, "(fn")
-			build_ast_from_fn_lit(b, source, expr)
-			strings.write_byte(b, ')')
-		}
+		strings.write_string(b, "(fn")
+		build_ast_from_fn_lit(b, source, expr)
+		strings.write_byte(b, ')')
 	}
 }
 
@@ -145,34 +137,25 @@ build_ast_from_type :: proc(b: ^strings.Builder, source: string, t: syntax.Type)
 @(private)
 get_string_for_op :: proc(op: syntax.Token_Kind) -> string {
 	#partial switch op {
-	case .Plus:
-		return "+"
-	case .Minus:
-		return "-"
-	case .Star:
-		return "*"
-	case .Slash:
-		return "/"
+	case .Plus:          return "+"
+	case .Minus:         return "-"
+	case .Star:          return "*"
+	case .Slash:         return "/"
 
-	case .Equal_Equal:
-		return "=="
-	case .Bang_Equal:
-		return "!="
+	case .Equal_Equal:   return "=="
+	case .Bang_Equal:    return "!="
 
-	case .Less:
-		return "<"
-	case .Less_Equal:
-		return "<="
-	case .Greater:
-		return ">"
-	case .Greater_Equal:
-		return ">="
+	case .Less:          return "<"
+	case .Less_Equal:    return "<="
+	case .Greater:       return ">"
+	case .Greater_Equal: return ">="
 
-	case .Equal:
-		return "="
+	case .Bang: return "!"
+
+	case .Equal: return "="
 	}
 
-	assert(false, "token passed is not a valid binary operation")
+	assert(false, "token passed is not a valid expression operation")
 	return ""
 }
 
